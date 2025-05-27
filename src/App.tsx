@@ -4,6 +4,7 @@ import Layout from './components/layout/Layout';
 import RequireBotPresent from './components/common/RequireBotPresent';
 import LoginView from './views/auth/LoginView';
 import DashboardView from './views/dashboard/DashboardView';
+import DndView from './views/dashboard/DndView';
 import RolesView from './views/roles/RolesView';
 import ChannelsView from './views/channels/ChannelsView';
 import CategoriesView from './views/categories/CategoriesView';
@@ -16,13 +17,24 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
 };
 
+const DashboardRedirect: React.FC = () => {
+  const { selectedGuild } = useAuthStore();
+  
+  if (selectedGuild) {
+    return <Navigate to={`/dashboard/${selectedGuild.id}`} replace />;
+  }
+  
+  // If no guild is selected, redirect to settings where user can select a guild
+  return <Navigate to="/settings" replace />;
+};
+
 function App() {
   const { theme } = useUiStore();
   const checkAuthStatus = useAuthStore((state) => state.checkAuthStatus);
 
   useEffect(() => {
     checkAuthStatus();
-  }, [checkAuthStatus]);
+  }, []); // Remove checkAuthStatus from dependencies to prevent infinite loop
 
   useEffect(() => {
     // Apply theme to document
@@ -41,10 +53,15 @@ function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<DashboardRedirect />} />
           <Route path="dashboard/:guildId" element={
             <RequireBotPresent>
               <DashboardView />
+            </RequireBotPresent>
+          } />
+          <Route path="dnd/:guildId" element={
+            <RequireBotPresent>
+              <DndView />
             </RequireBotPresent>
           } />
           <Route path="roles/:guildId" element={

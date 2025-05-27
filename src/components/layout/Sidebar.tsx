@@ -9,7 +9,8 @@ import {
   X, 
   Moon, 
   Sun, 
-  LogOut
+  LogOut,
+  Move
 } from 'lucide-react';
 import { useUiStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
@@ -29,6 +30,7 @@ const Sidebar: React.FC = () => {
     { to: '/roles', icon: <Users size={20} />, label: 'Roles' },
     { to: '/channels', icon: <MessageSquare size={20} />, label: 'Channels' },
     { to: '/categories', icon: <FolderTree size={20} />, label: 'Categories' },
+    { to: selectedGuild ? `/dnd/${selectedGuild.id}` : '/settings', icon: <Move size={20} />, label: 'DnD Editor' },
     { to: '/settings', icon: <Settings size={20} />, label: 'Settings' },
   ];
 
@@ -39,13 +41,12 @@ const Sidebar: React.FC = () => {
       <div 
         className={clsx(
           'fixed top-0 left-[72px] w-64 h-full bg-[#2B2D31] text-white z-20 transition-all duration-300 ease-in-out',
-          'md:block', // Always show on desktop
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0', // Only transform on mobile
-          'md:top-0', // Reset top position on desktop
-          'top-16' // Start below mobile header
+          'md:block',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+          'md:top-0',
+          'top-16'
         )}
       >
-        {/* Server Header - Only show on desktop */}
         <div className="hidden md:block px-4 py-3 border-b border-[#1E1F22]">
           <div className="flex items-center gap-3">
             {selectedGuild.icon ? (
@@ -105,7 +106,6 @@ const Sidebar: React.FC = () => {
         </div>
       </div>
 
-      {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-[72px] right-0 bg-[#2B2D31] text-white z-10 px-4 py-3 flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-3">
           {selectedGuild.icon ? (
@@ -129,7 +129,6 @@ const Sidebar: React.FC = () => {
         </button>
       </div>
 
-      {/* Mobile Overlay */}
       {sidebarOpen && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 z-10 md:hidden"

@@ -67,9 +67,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   checkAuthStatus: async () => {
     try {
-      const validacionauth = api.get(`${API_URL}/auth/status`)
-      console.log("validacion del auth: ulr :",validacionauth)
-      const response = await validacionauth;
+      const response = await api.get(`${API_URL}/auth/status`);
       console.log('Auth status response:', response.data);
       const isAuthenticated = response.data.authenticated;
       console.log("isAuthenticated: ",isAuthenticated)
