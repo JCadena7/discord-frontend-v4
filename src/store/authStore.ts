@@ -49,6 +49,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await api.get(`${API_URL}/auth/guilds`);
+      console.log("response de el fetchGuilds: ",response)
+      console.log("response de el fetchGuilds de la data: ",response.data)
       set({ guilds: response.data, isLoading: false });
     } catch (error) {
       set({ 
@@ -69,15 +71,20 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       console.log("validacion del auth: ulr :",validacionauth)
       const response = await validacionauth;
       console.log('Auth status response:', response.data);
-      const isAuthenticated = response.data.isAuthenticated;
+      const isAuthenticated = response.data.authenticated;
+      console.log("isAuthenticated: ",isAuthenticated)
       set({ isAuthenticated });
       if (isAuthenticated) {
         get().fetchGuilds();
       }
-    } catch (error) {
+    } catch (error: any) {
       set({ isAuthenticated: false });
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
+      // Solo borra los tokens si el error es 401
+      if (error?.response?.status === 401) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+      }
+      // Si es error de red, solo muestra mensaje o maneja el error, pero NO borres los tokens
     }
   },
 

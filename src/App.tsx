@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
+import RequireBotPresent from './components/common/RequireBotPresent';
 import LoginView from './views/auth/LoginView';
 import DashboardView from './views/dashboard/DashboardView';
 import RolesView from './views/roles/RolesView';
@@ -17,6 +18,11 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 function App() {
   const { theme } = useUiStore();
+  const checkAuthStatus = useAuthStore((state) => state.checkAuthStatus);
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, [checkAuthStatus]);
 
   useEffect(() => {
     // Apply theme to document
@@ -36,10 +42,26 @@ function App() {
           }
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardView />} />
-          <Route path="roles" element={<RolesView />} />
-          <Route path="channels" element={<ChannelsView />} />
-          <Route path="categories" element={<CategoriesView />} />
+          <Route path="dashboard/:guildId" element={
+            <RequireBotPresent>
+              <DashboardView />
+            </RequireBotPresent>
+          } />
+          <Route path="roles/:guildId" element={
+            <RequireBotPresent>
+              <RolesView />
+            </RequireBotPresent>
+          } />
+          <Route path="channels/:guildId" element={
+            <RequireBotPresent>
+              <ChannelsView />
+            </RequireBotPresent>
+          } />
+          <Route path="categories/:guildId" element={
+            <RequireBotPresent>
+              <CategoriesView />
+            </RequireBotPresent>
+          } />
           <Route path="settings" element={<SettingsView />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -6,11 +6,15 @@ import clsx from 'clsx';
 
 const GuildBar: React.FC = () => {
   const { guilds, selectGuild, selectedGuild } = useAuthStore();
+  // console.log("guilds: ",guilds)
+  // console.log("selectedGuild: ",selectedGuild)
   const navigate = useNavigate();
 
   const handleGuildSelect = (guild: any) => {
-    selectGuild(guild);
-    navigate('/dashboard');
+    if (!selectedGuild || selectedGuild.id !== guild.id) {
+      selectGuild(guild);
+      navigate(`/dashboard/${guild.id}`);
+    }
   };
 
   return (

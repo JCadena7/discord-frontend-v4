@@ -14,10 +14,10 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
-    console.log("token: ",token)
+    // console.log("token: ",token)
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log("Authorization header set:", config.headers.Authorization);
+      // console.log("Authorization header set:", config.headers.Authorization);
     }
     return config;
   },
@@ -38,6 +38,7 @@ api.interceptors.response.use(
       try {
         const refreshToken = localStorage.getItem('refresh_token');
         if (!refreshToken) {
+          console.log("vamos a eliminar los tokens de refreshToken y accessToken: ",refreshToken)
           console.log('No refresh token available');
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
@@ -58,11 +59,14 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         console.log("Authorization header set:", originalRequest.headers.Authorization);
         return api(originalRequest);
-      } catch (refreshError) {
+      } catch (refreshError: any) {
         console.log('Refresh token error:', refreshError);
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        window.location.href = '/login';
+        // Solo borra los tokens si el error es 401
+        if (refreshError?.response?.status === 401) {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          window.location.href = '/login';
+        }
         return Promise.reject(refreshError);
       }
     }

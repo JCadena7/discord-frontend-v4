@@ -1,21 +1,49 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Users, MessageSquare, FolderTree } from 'lucide-react';
 import Card from '../../components/common/Card';
 import { useRolesStore } from '../../store/rolesStore';
 import { useChannelsStore } from '../../store/channelsStore';
 import { useCategoriesStore } from '../../store/categoriesStore';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+import { getBotStatus } from '../../services/botStatus';
 
 const DashboardView: React.FC = () => {
   const { roles, fetchRoles } = useRolesStore();
   const { channels, fetchChannels } = useChannelsStore();
   const { categories, fetchCategories } = useCategoriesStore();
+  const { guildId } = useParams();
+  const [botPresent, setBotPresent] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchRoles();
-    fetchChannels();
-    fetchCategories();
-  }, [fetchRoles, fetchChannels, fetchCategories]);
+    let isMounted = true;
+    if (!guildId) return;
+    setLoading(true);
+    getBotStatus(guildId)
+      .then((data) => {
+        if (isMounted) {
+          setBotPresent(data.present);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setBotPresent(false);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [guildId]);
+
+  useEffect(() => {
+    if (botPresent) {
+      fetchRoles();
+      fetchChannels();
+      fetchCategories();
+    }
+    // Solo hacemos fetch si bot está presente
+  }, [botPresent, fetchRoles, fetchChannels, fetchCategories]);
 
   const stats = [
     {
@@ -37,6 +65,26 @@ const DashboardView: React.FC = () => {
       link: '/categories',
     },
   ];
+
+  if (loading) {
+    return <div className="flex justify-center items-center h-full text-white">Cargando...</div>;
+  }
+
+  if (botPresent === false) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-white">
+        <h2 className="text-2xl font-bold mb-4">Este servidor requiere configuración.</h2>
+        <a
+          href={`https://discord.com/channels/@me`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-4 py-2 bg-indigo-600 rounded text-white font-semibold hover:bg-indigo-700 transition"
+        >
+          <i className="fab fa-discord mr-2" />Continuar A Discord
+        </a>
+      </div>
+    );
+  }
 
   return (
     <div>
