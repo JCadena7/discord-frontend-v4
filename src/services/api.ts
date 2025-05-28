@@ -92,6 +92,13 @@ export const channelsApi = {
 
 // Categories API
 export const categoriesApi = {
+  /**
+   * Obtiene las categorías con canales de un guild específico (ruta protegida)
+   * @param guildId ID del servidor
+   * @returns Promise con las categorías y canales
+   */
+  getCategoriesWithChannels: (guildId: string) =>
+    api.get(`/discord-bot/${guildId}/categories/with-channels`),
   getCategories: (guildId: string) => 
     api.get<DiscordCategory[]>(`/discord-bot/${guildId}/categories`),
   getCategory: (guildId: string, id: string) => 

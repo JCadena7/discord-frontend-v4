@@ -40,7 +40,7 @@ const DashboardView: React.FC = () => {
     if (botPresent) {
       fetchRoles();
       fetchChannels();
-      fetchCategories();
+      if (guildId) fetchCategories(guildId);
     }
     // Solo hacemos fetch si bot está presente
   }, [botPresent, fetchRoles, fetchChannels, fetchCategories]);
