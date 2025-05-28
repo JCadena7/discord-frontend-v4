@@ -1,5 +1,5 @@
 import React, { useState, useRef, DragEvent, ChangeEvent } from 'react';
-import { Grip, Hash, Folder, Plus, Trash2, Copy, Download, Upload, Code, EyeOff, Shield, Users, Edit2, Check, X, Palette } from 'lucide-react';
+import { Grip, Hash, Folder, Plus, Trash2, Copy, Download, Upload, Code, EyeOff, Shield, Users, Edit2, Check, X } from 'lucide-react';
 
 // Definición de tipos
 interface Role {
