@@ -10,6 +10,9 @@ import { useDragAndDrop } from '../../hooks/useDragAndDrop';
 import { useCrudOperations } from '../../hooks/useCrudOperations';
 import ActionButton from '../../components/common/ActionButton';
 import RoleEditModal from '../../components/common/RoleEditModal';
+import CategoryEditModal from '../../components/common/CategoryEditModal';
+import ChannelEditModal from '../../components/common/ChannelEditModal';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
 // Constantes
 const AVAILABLE_PERMISSIONS = [
@@ -30,6 +33,10 @@ const ROLE_COLORS = [
 ];
 
 const DragDropChannelsRoles: React.FC = () => {
+  // Estado para modales
+  const [editCategoryId, setEditCategoryId] = useState<string | null>(null);
+  const [editChannel, setEditChannel] = useState<{categoryId: string, channelId: string} | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{type: 'category' | 'channel' | 'role', categoryId: string, channelId?: string, roleId?: string, name: string} | null>(null);
   const [categories, setCategories] = useState<Category[]>([
     {
       id: 'cat-1',
@@ -110,12 +117,56 @@ const DragDropChannelsRoles: React.FC = () => {
     saveRole,
     deleteRole,
     togglePermission,
-    cancelRoleEdit
+    cancelRoleEdit,
+    copyCategory,
+    pasteCategory,
+    copyChannel,
+    pasteChannel
   } = useCrudOperations({ categories, setCategories });
 
+  // Helpers para edición y borrado
+  const handleEditCategory = (categoryId: string) => setEditCategoryId(categoryId);
+  const handleEditChannel = (categoryId: string, channelId: string) => setEditChannel({ categoryId, channelId });
+  const handleDeleteCategory = (categoryId: string, name: string) => setDeleteTarget({ type: 'category', categoryId, name });
+  const handleDeleteChannel = (categoryId: string, channelId: string, name: string) => setDeleteTarget({ type: 'channel', categoryId, channelId, name });
+  const handleDeleteRole = (categoryId: string, roleId: string, channelId: string | undefined, name: string) => setDeleteTarget({ type: 'role', categoryId, channelId, roleId, name });
 
+  const handleConfirmDelete = () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.type === 'category') deleteCategory(deleteTarget.categoryId);
+    if (deleteTarget.type === 'channel' && deleteTarget.channelId) deleteChannel(deleteTarget.categoryId, deleteTarget.channelId);
+    if (deleteTarget.type === 'role' && deleteTarget.roleId) deleteRole(deleteTarget.categoryId, deleteTarget.roleId, deleteTarget.channelId);
+    setDeleteTarget(null);
+  };
 
+  const handleSaveCategoryEdit = (name: string) => {
+    if (editCategoryId) {
+      setCategories(categories.map(cat => cat.id === editCategoryId ? { ...cat, name } : cat));
+      setEditCategoryId(null);
+    }
+  };
 
+  const handleSaveChannelEdit = (name: string, type: 'text' | 'voice') => {
+    if (editChannel) {
+      setCategories(categories.map(cat =>
+        cat.id === editChannel.categoryId
+          ? { ...cat, channels: cat.channels.map(ch => ch.id === editChannel.channelId ? { ...ch, name, type } : ch) }
+          : cat
+      ));
+      setEditChannel(null);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditCategoryId(null);
+    setEditChannel(null);
+  };
+
+  // Clipboard state helpers
+  const clipboardRef = (useCrudOperations as any).clipboardRef || { current: { type: null, data: null } };
+  // Fallback for clipboard state (since clipboardRef is internal to the hook)
+  const isCategoryInClipboard = clipboardRef.current?.type === 'category';
+  const isChannelInClipboard = clipboardRef.current?.type === 'channel';
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
@@ -230,12 +281,42 @@ const DragDropChannelsRoles: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <Grip className="text-gray-500 cursor-grab" size={16} />
                   <Folder className="text-yellow-500" size={18} />
-                  <h2 className="text-xl font-semibold">{category.name}</h2>
-                  <span className="text-sm text-gray-400">
-                    ({category.channels.length} canales, {category.roles.length} roles)
+                  <span className="font-semibold text-lg group-hover:text-blue-400 transition-colors flex items-center gap-2">
+                    <Folder className="inline-block mr-1 text-gray-400" size={18} />
+                    {category.name}
+                    <button
+                      className="ml-2 text-blue-400 hover:text-blue-600 p-1 rounded"
+                      title="Editar categoría"
+                      onClick={() => handleEditCategory(category.id)}
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                    <button
+                      className="ml-1 text-red-400 hover:text-red-600 p-1 rounded"
+                      title="Eliminar categoría"
+                      onClick={() => handleDeleteCategory(category.id, category.name)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                    <span className="ml-2 text-xs text-gray-400 font-normal">({category.channels.length} canales, {category.roles.length} roles)</span>
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
+                  <ActionButton
+                    onClick={() => { copyCategory(category.id); showNotification('Categoría copiada'); }}
+                    icon={Copy}
+                    variant="secondary"
+                    size="sm"
+                    title="Copiar categoría"
+                  />
+                  <ActionButton
+                    onClick={() => { pasteCategory(); showNotification('Categoría pegada'); }}
+                    icon={Upload}
+                    variant="success"
+                    size="sm"
+                    title="Pegar categoría"
+                    disabled={!isCategoryInClipboard}
+                  />
                   <button onClick={() => addChannel(category.id)} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors">
                     <Plus size={14} />
                     Canal
@@ -243,9 +324,6 @@ const DragDropChannelsRoles: React.FC = () => {
                   <button onClick={() => addRole(category.id)} className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded text-sm transition-colors">
                     <Shield size={14} />
                     Rol
-                  </button>
-                  <button onClick={() => deleteCategory(category.id)} className="text-red-400 hover:text-red-300 p-1 transition-colors">
-                    <Trash2 size={16} />
                   </button>
                 </div>
               </div>
@@ -278,13 +356,13 @@ const DragDropChannelsRoles: React.FC = () => {
                           <ActionButton
                             onClick={() => editRole(role, category.id)}
                             variant="edit"
-                            size="sm"
+                            size="xs"
                             icon={Edit2}
                           />
                           <ActionButton
-                            onClick={() => deleteRole(category.id, role.id)}
+                            onClick={() => handleDeleteRole(category.id, role.id, undefined, role.name)}
                             variant="delete"
-                            size="sm"
+                            size="xs"
                             icon={Trash2}
                           />
                         </div>
@@ -295,34 +373,64 @@ const DragDropChannelsRoles: React.FC = () => {
               )}
 
               {/* Canales */}
-              <div className="space-y-2 ml-6">
+              <div 
+                className="space-y-3 ml-6"
+                onDragOver={handleDragOver}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, category.id)}
+              >
                 {category.channels.map((channel) => (
-                  <div key={channel.id} className="bg-gray-700 rounded p-3">
-                    <div
-                      className={`flex items-center justify-between cursor-move hover:bg-gray-600 transition-colors group rounded p-2 -m-2 ${
-                        draggedType === 'channel' && draggedItem?.id === channel.id ? 'opacity-50 scale-95' : ''
-                      }`}
-                      draggable={true}
-                      onDragStart={(e) => handleDragStart(e, channel, 'channel')}
-                    >
+                  <div
+                    key={channel.id}
+                    className={`bg-gray-700 rounded-lg p-3 transition-all duration-200 group ${
+                      draggedType === 'channel' && draggedItem?.id === channel.id ? 'opacity-50 scale-95' : ''
+                    }`}
+                    draggable={true}
+                    onDragStart={(e) => handleDragStart(e, channel, 'channel', { categoryId: category.id })}
+                  >
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <Grip className="text-gray-500" size={14} />
+                        <Grip className="text-gray-500 cursor-grab" size={14} />
                         <Hash className="text-gray-400" size={16} />
-                        <span className="font-medium">{channel.name}</span>
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          channel.type === 'text' 
-                            ? 'bg-blue-600 text-blue-100' 
-                            : 'bg-green-600 text-green-100'
-                        }`}>
-                          {channel.type === 'text' ? 'Texto' : 'Voz'}
+                        <span className="text-white font-medium">{channel.name}</span>
+                        <span className="text-xs text-gray-400 bg-gray-600 px-2 py-1 rounded">
+                          {channel.type}
                         </span>
+                        {channel.roles.length > 0 && (
+                          <span className="text-xs text-gray-400">
+                            {channel.roles.length} roles
+                          </span>
+                        )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ActionButton
+                          onClick={() => handleEditChannel(category.id, channel.id)}
+                          icon={Edit2}
+                          variant="edit"
+                          size="xs"
+                          title="Editar canal"
+                        />
+                        <ActionButton
+                          onClick={() => { copyChannel(category.id, channel.id); showNotification('Canal copiado'); }}
+                          icon={Copy}
+                          variant="secondary"
+                          size="xs"
+                          title="Copiar canal"
+                        />
+                        <ActionButton
+                          onClick={() => { pasteChannel(category.id); showNotification('Canal pegado'); }}
+                          icon={Upload}
+                          variant="success"
+                          size="xs"
+                          title="Pegar canal"
+                          disabled={!isChannelInClipboard}
+                        />
                         <button onClick={() => addRole(category.id, channel.id)} className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded text-xs transition-colors">
                           <Shield size={12} />
                           Rol
                         </button>
-                        <button onClick={() => deleteChannel(category.id, channel.id)} className="text-red-400 hover:text-red-300 p-1 transition-colors opacity-0 group-hover:opacity-100">
+                        <button onClick={() => handleDeleteChannel(category.id, channel.id, channel.name)} className="text-red-400 hover:text-red-300 p-1 transition-colors">
                           <Trash2 size={14} />
                         </button>
                       </div>
@@ -366,7 +474,7 @@ const DragDropChannelsRoles: React.FC = () => {
                                   icon={Edit2}
                                 />
                                 <ActionButton
-                                  onClick={() => deleteRole(category.id, role.id, channel.id)}
+                                  onClick={() => handleDeleteRole(category.id, role.id, channel.id, role.name)}
                                   variant="delete"
                                   size="xs"
                                   icon={Trash2}
@@ -425,6 +533,38 @@ const DragDropChannelsRoles: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Modales de edición y confirmación */}
+      {editCategoryId && (
+        <CategoryEditModal
+          initialName={categories.find(cat => cat.id === editCategoryId)?.name || ''}
+          onSave={handleSaveCategoryEdit}
+          onCancel={handleCancelEdit}
+        />
+      )}
+      {editChannel && (
+        <ChannelEditModal
+          initialName={(() => {
+            const cat = categories.find(c => c.id === editChannel.categoryId);
+            const ch = cat?.channels.find(ch => ch.id === editChannel.channelId);
+            return ch?.name || '';
+          })()}
+          initialType={(() => {
+            const cat = categories.find(c => c.id === editChannel.categoryId);
+            const ch = cat?.channels.find(ch => ch.id === editChannel.channelId);
+            return (ch?.type as 'text' | 'voice') || 'text';
+          })()}
+          onSave={handleSaveChannelEdit}
+          onCancel={handleCancelEdit}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          message={`¿Seguro que quieres eliminar ${deleteTarget.type === 'category' ? 'la categoría' : deleteTarget.type === 'channel' ? 'el canal' : 'el rol'} "${deleteTarget.name}"? Esta acción no se puede deshacer.`}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
 
       <style>
         {`

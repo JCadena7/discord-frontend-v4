@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Category, Channel, Role } from '../types/discord';
 import { updateRoleInCollection, removeRoleFromCollection, removeChannelFromCategory, addChannelToCategory } from '../utils/dataUtils';
 
@@ -25,6 +25,31 @@ interface EditingRole {
   channelId?: string;
 }
 
+// Utilidad para clonar un canal con nuevos IDs para canal y roles
+function cloneChannel(channel: Channel): Channel {
+  return {
+    ...channel,
+    id: `ch-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    roles: channel.roles.map(role => ({
+      ...role,
+      id: `role-ch-${Date.now()}-${Math.floor(Math.random() * 10000)}`
+    }))
+  };
+}
+
+// Utilidad para clonar una categoría con nuevos IDs para categoría, canales y roles
+function cloneCategory(category: Category): Category {
+  return {
+    ...category,
+    id: `cat-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    channels: category.channels.map(cloneChannel),
+    roles: category.roles.map(role => ({
+      ...role,
+      id: `role-cat-${Date.now()}-${Math.floor(Math.random() * 10000)}`
+    }))
+  };
+}
+
 export const useCrudOperations = ({ categories, setCategories }: UseCrudOperationsProps) => {
   const [editingRole, setEditingRole] = useState<EditingRole | null>(null);
   const [roleForm, setRoleForm] = useState<RoleForm>({
@@ -32,6 +57,9 @@ export const useCrudOperations = ({ categories, setCategories }: UseCrudOperatio
     permissions: [],
     color: ROLE_COLORS[0]
   });
+
+  // Portapapeles local para copiar/pegar
+  const clipboardRef = useRef<{ type: 'category' | 'channel' | null, data: Category | Channel | null }>({ type: null, data: null });
 
   // Operaciones de categorías
   const addCategory = useCallback((): void => {
@@ -174,6 +202,42 @@ export const useCrudOperations = ({ categories, setCategories }: UseCrudOperatio
     setRoleForm({ name: '', permissions: [], color: ROLE_COLORS[0] });
   }, []);
 
+  // --- COPIAR Y PEGAR ---
+  const copyCategory = useCallback((categoryId: string) => {
+    const category = categories.find(cat => cat.id === categoryId);
+    if (category) {
+      clipboardRef.current = { type: 'category', data: category };
+    }
+  }, [categories]);
+
+  const pasteCategory = useCallback(() => {
+    if (clipboardRef.current.type === 'category' && clipboardRef.current.data) {
+      const newCategory = cloneCategory(clipboardRef.current.data as Category);
+      setCategories([...categories, newCategory]);
+      clipboardRef.current = { type: null, data: null };
+    }
+  }, [categories, setCategories]);
+
+  const copyChannel = useCallback((categoryId: string, channelId: string) => {
+    const category = categories.find(cat => cat.id === categoryId);
+    const channel = category?.channels.find(ch => ch.id === channelId);
+    if (channel) {
+      clipboardRef.current = { type: 'channel', data: channel };
+    }
+  }, [categories]);
+
+  const pasteChannel = useCallback((targetCategoryId: string) => {
+    if (clipboardRef.current.type === 'channel' && clipboardRef.current.data) {
+      const newChannel = cloneChannel(clipboardRef.current.data as Channel);
+      setCategories(categories.map(cat =>
+        cat.id === targetCategoryId
+          ? { ...cat, channels: [...cat.channels, newChannel] }
+          : cat
+      ));
+      clipboardRef.current = { type: null, data: null };
+    }
+  }, [categories, setCategories]);
+
   return {
     // Estado
     editingRole,
@@ -194,6 +258,12 @@ export const useCrudOperations = ({ categories, setCategories }: UseCrudOperatio
     saveRole,
     deleteRole,
     togglePermission,
-    cancelRoleEdit
+    cancelRoleEdit,
+
+    // Copiar y pegar
+    copyCategory,
+    pasteCategory,
+    copyChannel,
+    pasteChannel
   };
 };
