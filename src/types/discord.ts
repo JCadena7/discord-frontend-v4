@@ -53,6 +53,31 @@ export enum ChannelType {
   GUILD_PUBLIC_THREAD = 11,
   GUILD_PRIVATE_THREAD = 12,
   GUILD_STAGE_VOICE = 13,
-  GUILD_DIRECTORY = 14,
-  GUILD_FORUM = 15,
+  GUILD_FORUM = 15
 }
+
+// Interfaces para el componente DndView
+export interface Role {
+  id: string;
+  name: string;
+  permissions: string[];
+  color: string;
+}
+
+export interface Channel {
+  id: string;
+  name: string;
+  type: 'text' | 'voice';
+  roles: Role[];
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  channels: Channel[];
+  roles: Role[];
+}
+
+// Tipos para drag and drop
+export type DraggedType = 'channel' | 'category' | 'role' | null;
+export type DraggedItem = Channel | Category | Role | null;
