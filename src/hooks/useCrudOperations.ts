@@ -151,10 +151,22 @@ export const useCrudOperations = ({ categories, setCategories }: UseCrudOperatio
               })
             };
           } else {
-            // Rol de categoría
+            // Rol de categoría: actualiza en la categoría y propaga a canales
+            const updatedCategoryRoles = updateRoleInCollection(cat.roles, editingRole.id, newRole);
+            const updatedChannels = cat.channels.map(ch => {
+              // Si el canal NO tiene override para este rol, agrégalo o actualízalo
+              if (!ch.roles.some(r => r.id === newRole.id)) {
+                return {
+                  ...ch,
+                  roles: [...ch.roles, newRole]
+                };
+              }
+              return ch;
+            });
             return {
               ...cat,
-              roles: updateRoleInCollection(cat.roles, editingRole.id, newRole)
+              roles: updatedCategoryRoles,
+              channels: updatedChannels
             };
           }
         }
@@ -180,7 +192,16 @@ export const useCrudOperations = ({ categories, setCategories }: UseCrudOperatio
               )
             };
           } else {
-            return { ...cat, roles: removeRoleFromCollection(cat.roles, roleId) };
+            // Eliminar de la categoría y de todos los canales que no tengan override
+            const updatedChannels = cat.channels.map(ch => ({
+              ...ch,
+              roles: ch.roles.filter(r => r.id !== roleId)
+            }));
+            return {
+              ...cat,
+              roles: removeRoleFromCollection(cat.roles, roleId),
+              channels: updatedChannels
+            };
           }
         }
         return cat;
@@ -238,7 +259,18 @@ export const useCrudOperations = ({ categories, setCategories }: UseCrudOperatio
     }
   }, [categories, setCategories]);
 
+  // Helper para obtener los roles efectivos de un canal (heredados + overrides)
+  function getEffectiveRolesForChannel(category: Category, channel: Channel): Role[] {
+    // Roles heredados de la categoría que NO están sobreescritos en el canal
+    const inheritedRoles = category.roles.filter(
+      catRole => !channel.roles.some(chanRole => chanRole.id === catRole.id)
+    );
+    // Los roles del canal sobrescriben a los heredados si hay conflicto de ID
+    return [...inheritedRoles, ...channel.roles];
+  }
+
   return {
+    getEffectiveRolesForChannel,
     // Estado
     editingRole,
     roleForm,

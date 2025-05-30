@@ -3,16 +3,43 @@ import {
   Hash, Folder, Plus, Trash2, Download, Upload, Copy, 
   FileText, Edit2, Shield, Users, Grip
 } from 'lucide-react';
-import { Category } from '../../types/discord';
+import { Category, Role } from '../../types/discord';
 import { useNotification } from '../../hooks/useNotification';
 import { useJsonOperations } from '../../hooks/useJsonOperations';
 import { useDragAndDrop } from '../../hooks/useDragAndDrop';
 import { useCrudOperations } from '../../hooks/useCrudOperations';
 import ActionButton from '../../components/common/ActionButton';
-import RoleEditModal from '../../components/common/RoleEditModal';
+import RoleModal from '../../components/common/RoleEditModal';
+
+// Tipos para el modal de rol
+interface RoleForm {
+  name: string;
+  permissions: string[];
+  color: string;
+}
+
+interface EditingRole {
+  id: string;
+  categoryId: string;
+  channelId?: string;
+}
+
+type ModalMode = 'create' | 'edit' | 'view';
+
+interface RoleModalState {
+  isOpen: boolean;
+  mode: ModalMode;
+  editingRole?: EditingRole;
+  existingRole?: Role;
+  roleForm: RoleForm;
+  categoryId: string;
+  channelId?: string;
+}
+
 import CategoryEditModal from '../../components/common/CategoryEditModal';
 import ChannelEditModal from '../../components/common/ChannelEditModal';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import SelectRoleModal from '../../components/common/SelectRoleModal';
 
 // Constantes
 const AVAILABLE_PERMISSIONS = [
@@ -29,10 +56,91 @@ const AVAILABLE_PERMISSIONS = [
 const ROLE_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
   '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
-  '#F8C471', '#82E0AA', '#F1948A', '#85C1E9', '#D7DBDD'
+  '#F8C471', '#82E0AA', '#F1948A', '#D7DBDD'
 ];
 
 const DragDropChannelsRoles: React.FC = () => {
+  // Estado para edición secuencial de roles recién asignados
+  const [pendingRoleEdits, setPendingRoleEdits] = useState<Array<Role & { categoryId: string; channelId?: string }>>([]);
+  // Estado para el modal de rol
+  const [roleModal, setRoleModal] = useState<RoleModalState>({
+    isOpen: false,
+    mode: 'create',
+    roleForm: { name: '', permissions: [], color: '' },
+    categoryId: '',
+    channelId: undefined
+  });
+
+  // Handlers para abrir el modal de rol en modo crear, editar y ver
+  const handleEditRole = (role: Role, categoryId: string, channelId?: string) => {
+    setRoleModal({
+      isOpen: true,
+      mode: 'edit',
+      editingRole: { id: role.id, categoryId, channelId },
+      existingRole: { ...role },
+      roleForm: { name: role.name, permissions: role.permissions, color: role.color },
+      categoryId,
+      channelId
+    });
+  };
+
+  const handleViewRole = (role: Role, categoryId: string, channelId?: string) => {
+    setRoleModal({
+      isOpen: true,
+      mode: 'view',
+      editingRole: { id: role.id, categoryId, channelId },
+      existingRole: { ...role },
+      roleForm: { name: role.name, permissions: role.permissions, color: role.color },
+      categoryId,
+      channelId
+    });
+  };
+
+  // Estado para modal de selección de roles
+  const [selectRoleModal, setSelectRoleModal] = useState<{
+    open: boolean,
+    targetType: 'category' | 'channel' | null,
+    categoryId: string | null,
+    channelId?: string | null
+  }>({ open: false, targetType: null, categoryId: null, channelId: null });
+
+  // Obtener todos los roles existentes en el servidor (de todas las categorías y canales, únicos por id)
+  const getAllRoles = (): Role[] => {
+    const roleMap: Record<string, Role> = {};
+    categories.forEach(cat => {
+      cat.roles.forEach(role => { roleMap[role.id] = role; });
+      cat.channels.forEach(ch => {
+        ch.roles.forEach(role => { roleMap[role.id] = role; });
+      });
+    });
+    return Object.values(roleMap);
+  };
+
+  // Asignar roles existentes (referencia) a categoría
+  const assignRolesToCategory = (categoryId: string, roles: Role[]) => {
+    setCategories(categories.map(cat =>
+      cat.id === categoryId
+        ? { ...cat, roles: [...cat.roles, ...roles.filter(r => !cat.roles.some(cr => cr.id === r.id))] }
+        : cat
+    ));
+  };
+
+  // Asignar roles existentes (referencia) a canal
+  const assignRolesToChannel = (categoryId: string, channelId: string, roles: Role[]) => {
+    setCategories(categories.map(cat =>
+      cat.id === categoryId
+        ? {
+            ...cat,
+            channels: cat.channels.map(ch =>
+              ch.id === channelId
+                ? { ...ch, roles: [...ch.roles, ...roles.filter(r => !ch.roles.some(cr => cr.id === r.id))] }
+                : ch
+            )
+          }
+        : cat
+    ));
+  };
+
   // Estado para modales
   const [editCategoryId, setEditCategoryId] = useState<string | null>(null);
   const [editChannel, setEditChannel] = useState<{categoryId: string, channelId: string} | null>(null);
@@ -103,26 +211,24 @@ const DragDropChannelsRoles: React.FC = () => {
     draggedItem,
     draggedType
   } = useDragAndDrop({ categories, setCategories });
-  
-  const {
-    editingRole,
-    roleForm,
-    setRoleForm,
+
+  const crudOps = useCrudOperations({ categories, setCategories });
+const {
     addCategory,
     deleteCategory,
     addChannel,
     deleteChannel,
-    addRole,
-    editRole,
-    saveRole,
     deleteRole,
-    togglePermission,
-    cancelRoleEdit,
     copyCategory,
     pasteCategory,
     copyChannel,
-    pasteChannel
-  } = useCrudOperations({ categories, setCategories });
+    pasteChannel,
+    getEffectiveRolesForChannel
+  } = crudOps;
+// clipboard helpers
+const clipboardRef = (crudOps as any).clipboardRef || { current: { type: null, data: null } };
+const isCategoryInClipboard = clipboardRef.current?.type === 'category';
+const isChannelInClipboard = clipboardRef.current?.type === 'channel';
 
   // Helpers para edición y borrado
   const handleEditCategory = (categoryId: string) => setEditCategoryId(categoryId);
@@ -161,12 +267,6 @@ const DragDropChannelsRoles: React.FC = () => {
     setEditCategoryId(null);
     setEditChannel(null);
   };
-
-  // Clipboard state helpers
-  const clipboardRef = (useCrudOperations as any).clipboardRef || { current: { type: null, data: null } };
-  // Fallback for clipboard state (since clipboardRef is internal to the hook)
-  const isCategoryInClipboard = clipboardRef.current?.type === 'category';
-  const isChannelInClipboard = clipboardRef.current?.type === 'channel';
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
@@ -207,6 +307,19 @@ const DragDropChannelsRoles: React.FC = () => {
               <Plus size={16} />
               Nueva Categoría
             </button>
+            <button
+              onClick={() => setRoleModal({
+                isOpen: true,
+                mode: 'create',
+                roleForm: { name: '', permissions: [], color: '' },
+                categoryId: '',
+                channelId: undefined
+              })}
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg transition-colors"
+            >
+              <Plus size={16} />
+              Nuevo Rol
+            </button>
           </div>
         </div>
 
@@ -242,18 +355,169 @@ const DragDropChannelsRoles: React.FC = () => {
         )}
 
         {/* Modal de edición de rol */}
-        {editingRole && (
-          <RoleEditModal
-            editingRole={editingRole}
-            roleForm={roleForm}
-            setRoleForm={setRoleForm}
+        {roleModal.isOpen && (
+          <RoleModal
+            isOpen={roleModal.isOpen}
+            mode={roleModal.mode}
+            editingRole={roleModal.editingRole}
+            existingRole={roleModal.existingRole}
+            roleForm={roleModal.roleForm}
+            setRoleForm={(form) => setRoleModal(prev => ({ ...prev, roleForm: typeof form === 'function' ? form(prev.roleForm) : form }))}
             availablePermissions={AVAILABLE_PERMISSIONS}
             roleColors={ROLE_COLORS}
-            onSave={saveRole}
-            onCancel={cancelRoleEdit}
-            onTogglePermission={togglePermission}
+            onSave={async (roleData) => {
+              // Create or update the role
+              const newRole: Role = {
+                id: roleModal.editingRole?.id || `role-${Date.now()}`,
+                name: roleData.name,
+                permissions: roleData.permissions,
+                color: roleData.color
+              };
+
+              setCategories(prev => prev.map(cat => {
+                if (cat.id === roleData.categoryId) {
+                  if (roleData.channelId) {
+                    return {
+                      ...cat,
+                      channels: cat.channels.map(ch => {
+                        if (ch.id === roleData.channelId) {
+                          const existingRoleIndex = ch.roles.findIndex(r => r.id === newRole.id);
+                          if (existingRoleIndex >= 0) {
+                            const updatedRoles = [...ch.roles];
+                            updatedRoles[existingRoleIndex] = newRole;
+                            return { ...ch, roles: updatedRoles };
+                          } else {
+                            return { ...ch, roles: [...ch.roles, newRole] };
+                          }
+                        }
+                        return ch;
+                      })
+                    };
+                  } else {
+                    const existingRoleIndex = cat.roles.findIndex(r => r.id === newRole.id);
+                    if (existingRoleIndex >= 0) {
+                      const updatedRoles = [...cat.roles];
+                      updatedRoles[existingRoleIndex] = newRole;
+                      return { ...cat, roles: updatedRoles };
+                    } else {
+                      return { ...cat, roles: [...cat.roles, newRole] };
+                    }
+                  }
+                }
+                return cat;
+              }));
+              setRoleModal(prev => ({ ...prev, isOpen: false }));
+            }}
+            onCancel={() => setRoleModal({ isOpen: false, mode: 'create', roleForm: { name: '', permissions: [], color: '' }, categoryId: '', channelId: undefined })}
+            onTogglePermission={(permission: string) => {
+              setRoleModal(prev => ({
+                ...prev,
+                roleForm: {
+                  ...prev.roleForm,
+                  permissions: prev.roleForm.permissions.includes(permission)
+                    ? prev.roleForm.permissions.filter(p => p !== permission)
+                    : [...prev.roleForm.permissions, permission]
+                }
+              }));
+            }}
+            onEdit={() => setRoleModal(prev => ({ ...prev, mode: 'edit' }))}
           />
         )}
+
+
+        {/* Modal para agregar roles existentes */}
+        {selectRoleModal.open && (
+          <SelectRoleModal
+            roles={getAllRoles().filter(role => {
+              // Excluir roles ya asignados a la categoría/canal actual
+              if (selectRoleModal.targetType === 'category') {
+                const cat = categories.find(c => c.id === selectRoleModal.categoryId);
+                return cat ? !cat.roles.some(r => r.id === role.id) : true;
+              } else if (selectRoleModal.targetType === 'channel') {
+                const cat = categories.find(c => c.id === selectRoleModal.categoryId);
+                const ch = cat?.channels.find(ch => ch.id === selectRoleModal.channelId);
+                return ch ? !ch.roles.some(r => r.id === role.id) : true;
+              }
+              return true;
+            })}
+            onConfirm={(selectedRoles) => {
+              // Asignar roles y preparar edición de permisos secuencial
+              if (selectRoleModal.targetType === 'category' && typeof selectRoleModal.categoryId === 'string') {
+                assignRolesToCategory(selectRoleModal.categoryId, selectedRoles);
+                setPendingRoleEdits(selectedRoles.map(role => ({
+                  ...role,
+                  categoryId: selectRoleModal.categoryId as string,
+                  channelId: undefined
+                })));
+              } else if (selectRoleModal.targetType === 'channel' && typeof selectRoleModal.categoryId === 'string' && typeof selectRoleModal.channelId === 'string') {
+                assignRolesToChannel(selectRoleModal.categoryId, selectRoleModal.channelId, selectedRoles);
+                setPendingRoleEdits(selectedRoles.map(role => ({
+                  ...role,
+                  categoryId: selectRoleModal.categoryId as string,
+                  channelId: selectRoleModal.channelId as string
+                })));
+              }
+              setSelectRoleModal({ open: false, targetType: null, categoryId: null, channelId: null });
+            }}
+            onCancel={() => setSelectRoleModal({ open: false, targetType: null, categoryId: null, channelId: null })}
+            title={selectRoleModal.targetType === 'category' ? 'Agregar roles a la categoría' : 'Agregar roles al canal'}
+          />
+        )}
+
+        {/* Edición secuencial de permisos de roles recién asignados */}
+        {pendingRoleEdits.length > 0 && (
+          <RoleModal
+            isOpen={true}
+            mode="edit"
+            editingRole={{
+              id: pendingRoleEdits[0].id,
+              categoryId: pendingRoleEdits[0].categoryId,
+              channelId: pendingRoleEdits[0].channelId
+            }}
+            existingRole={pendingRoleEdits[0]}
+            roleForm={{
+              name: pendingRoleEdits[0].name,
+              permissions: pendingRoleEdits[0].permissions,
+              color: pendingRoleEdits[0].color
+            }}
+            setRoleForm={() => { /* No-op */ }}
+            availablePermissions={AVAILABLE_PERMISSIONS}
+            roleColors={ROLE_COLORS}
+            onSave={async (roleData) => {
+              // Actualizar solo el rol editado
+              setCategories(prev => prev.map(cat => {
+                if (cat.id === roleData.categoryId) {
+                  if (roleData.channelId) {
+                    return {
+                      ...cat,
+                      channels: cat.channels.map(ch => {
+                        if (ch.id === roleData.channelId) {
+                          const updatedRoles = ch.roles.map(r =>
+                            r.id === pendingRoleEdits[0].id ? { ...r, permissions: roleData.permissions, color: roleData.color } : r
+                          );
+                          return { ...ch, roles: updatedRoles };
+                        }
+                        return ch;
+                      })
+                    };
+                  } else {
+                    const updatedRoles = cat.roles.map(r =>
+                      r.id === pendingRoleEdits[0].id ? { ...r, permissions: roleData.permissions, color: roleData.color } : r
+                    );
+                    return { ...cat, roles: updatedRoles };
+                  }
+                }
+                return cat;
+              }));
+              // Quitar el rol editado de la lista
+              setPendingRoleEdits((edits: Array<Role & { categoryId: string; channelId?: string }>) => edits.slice(1));
+            }}
+            onCancel={() => setPendingRoleEdits((edits: Array<Role & { categoryId: string; channelId?: string }>) => edits.slice(1))}
+            onTogglePermission={() => {}}
+            onEdit={() => {}}
+          />
+        )}
+
 
         {/* Notificaciones */}
         {notification && (
@@ -263,104 +527,258 @@ const DragDropChannelsRoles: React.FC = () => {
         )}
 
         {/* Lista de categorías */}
-        <div className="space-y-6">
-          {categories.map((category) => (
+        {/* Lista de categorías */}
+<div className="space-y-6">
+  {categories.map((category) => (
+    <div
+      key={category.id}
+      className={`bg-gray-800 rounded-lg p-4 transition-all duration-200 ${
+        draggedType === 'category' && draggedItem?.id === category.id ? 'opacity-50 scale-95' : ''
+      }`}
+      draggable={true}
+      onDragStart={(e) => handleDragStart(e, category, 'category')}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={(e) => handleDrop(e, category.id)}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <Grip className="text-gray-500 cursor-grab" size={16} />
+          <Folder className="text-yellow-500" size={18} />
+          <span className="font-semibold text-lg group-hover:text-blue-400 transition-colors flex items-center gap-2">
+            <Folder className="inline-block mr-1 text-gray-400" size={18} />
+            {category.name}
+            <button
+              className="ml-2 text-blue-400 hover:text-blue-600 p-1 rounded"
+              title="Editar categoría"
+              onClick={() => handleEditCategory(category.id)}
+            >
+              <Edit2 size={14} />
+            </button>
+            <button
+              className="ml-1 text-red-400 hover:text-red-600 p-1 rounded"
+              title="Eliminar categoría"
+              onClick={() => handleDeleteCategory(category.id, category.name)}
+            >
+              <Trash2 size={14} />
+            </button>
+            <span className="ml-2 text-xs text-gray-400 font-normal">({category.channels.length} canales, {category.roles.length} roles)</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <ActionButton
+            onClick={() => { copyCategory(category.id); showNotification('Categoría copiada'); }}
+            icon={Copy}
+            variant="secondary"
+            size="sm"
+            title="Copiar categoría"
+          />
+          <ActionButton
+            onClick={() => { pasteCategory(); showNotification('Categoría pegada'); }}
+            icon={Upload}
+            variant="success"
+            size="sm"
+            title="Pegar categoría"
+            disabled={!isCategoryInClipboard}
+          />
+          <button onClick={() => addChannel(category.id)} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors">
+            <Plus size={14} />
+            Canal
+          </button>
+          <button onClick={() => {
+            setRoleModal({
+              isOpen: true,
+              mode: 'create',
+              roleForm: { name: '', permissions: [], color: '' },
+              categoryId: category.id,
+              channelId: undefined
+            });
+          }} className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded text-sm transition-colors">
+            <Shield size={14} />
+            Rol
+          </button>
+          <button
+            onClick={() => setSelectRoleModal({ open: true, targetType: 'category', categoryId: category.id })}
+            className="flex items-center gap-1 bg-blue-700 hover:bg-blue-800 px-3 py-1 rounded text-sm transition-colors"
+          >
+            <Users size={14} />
+            Agregar rol existente
+          </button>
+        </div>
+      </div>
+
+      {/* Roles de categoría */}
+      {category.roles.length > 0 && (
+        <div className="mb-4 ml-6">
+          <h4 className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+            <Users size={14} />
+            Roles de Categoría
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {category.roles.map((role) => (
+              <div
+                key={role.id}
+                className={`flex items-center gap-2 bg-gray-700 rounded px-3 py-1 cursor-move hover:bg-gray-600 transition-colors group ${
+                  draggedType === 'role' && draggedItem?.id === role.id ? 'opacity-50 scale-95' : ''
+                }`}
+                draggable={true}
+                onDragStart={(e) => handleDragStart(e, role, 'role', { categoryId: category.id })}
+              >
+                <Grip className="text-gray-500" size={12} />
+                <div 
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: role.color }}
+                />
+                <span className="text-sm font-medium">{role.name}</span>
+                <span className="text-xs text-gray-400">({role.permissions.length})</span>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <ActionButton
+                    onClick={() => handleEditRole(role, category.id)}
+                    variant="edit"
+                    size="xs"
+                    icon={Edit2}
+                  />
+                  <ActionButton
+                    onClick={() => handleDeleteRole(category.id, role.id, undefined, role.name)}
+                    variant="delete"
+                    size="xs"
+                    icon={Trash2}
+                  />
+                  <ActionButton
+                    onClick={() => handleViewRole(role, category.id)}
+                    variant="secondary"
+                    size="xs"
+                    icon={Shield}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Canales */}
+      <div 
+        className="space-y-3 ml-6"
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDrop(e, category.id)}
+      >
+        {category.channels.map((channel) => {
+          // Mostrar roles efectivos (heredados + overrides)
+          const effectiveRoles = getEffectiveRolesForChannel(category, channel);
+          return (
             <div
-              key={category.id}
-              className={`bg-gray-800 rounded-lg p-4 transition-all duration-200 ${
-                draggedType === 'category' && draggedItem?.id === category.id ? 'opacity-50 scale-95' : ''
+              key={channel.id}
+              className={`bg-gray-700 rounded-lg p-3 transition-all duration-200 group ${
+                draggedType === 'channel' && draggedItem?.id === channel.id ? 'opacity-50 scale-95' : ''
               }`}
               draggable={true}
-              onDragStart={(e) => handleDragStart(e, category, 'category')}
-              onDragOver={handleDragOver}
-              onDragEnter={handleDragEnter}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, category.id)}
+              onDragStart={(e) => handleDragStart(e, channel, 'channel', { categoryId: category.id })}
             >
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Grip className="text-gray-500 cursor-grab" size={16} />
-                  <Folder className="text-yellow-500" size={18} />
-                  <span className="font-semibold text-lg group-hover:text-blue-400 transition-colors flex items-center gap-2">
-                    <Folder className="inline-block mr-1 text-gray-400" size={18} />
-                    {category.name}
-                    <button
-                      className="ml-2 text-blue-400 hover:text-blue-600 p-1 rounded"
-                      title="Editar categoría"
-                      onClick={() => handleEditCategory(category.id)}
-                    >
-                      <Edit2 size={14} />
-                    </button>
-                    <button
-                      className="ml-1 text-red-400 hover:text-red-600 p-1 rounded"
-                      title="Eliminar categoría"
-                      onClick={() => handleDeleteCategory(category.id, category.name)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                    <span className="ml-2 text-xs text-gray-400 font-normal">({category.channels.length} canales, {category.roles.length} roles)</span>
+                  <Grip className="text-gray-500 cursor-grab" size={14} />
+                  <Hash className="text-gray-400" size={16} />
+                  <span className="text-white font-medium">{channel.name}</span>
+                  <span className="text-xs text-gray-400 bg-gray-600 px-2 py-1 rounded">
+                    {channel.type}
                   </span>
+                  {effectiveRoles.length > 0 && (
+                    <span className="text-xs text-gray-400">
+                      {effectiveRoles.length} roles: {effectiveRoles.map(r => r.name).join(', ')}
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <ActionButton
-                    onClick={() => { copyCategory(category.id); showNotification('Categoría copiada'); }}
+                    onClick={() => handleEditChannel(category.id, channel.id)}
+                    icon={Edit2}
+                    variant="edit"
+                    size="xs"
+                    title="Editar canal"
+                  />
+                  <ActionButton
+                    onClick={() => { copyChannel(category.id, channel.id); showNotification('Canal copiado'); }}
                     icon={Copy}
                     variant="secondary"
-                    size="sm"
-                    title="Copiar categoría"
+                    size="xs"
+                    title="Copiar canal"
                   />
                   <ActionButton
-                    onClick={() => { pasteCategory(); showNotification('Categoría pegada'); }}
+                    onClick={() => { pasteChannel(category.id); showNotification('Canal pegado'); }}
                     icon={Upload}
                     variant="success"
-                    size="sm"
-                    title="Pegar categoría"
-                    disabled={!isCategoryInClipboard}
+                    size="xs"
+                    title="Pegar canal"
+                    disabled={!isChannelInClipboard}
                   />
-                  <button onClick={() => addChannel(category.id)} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors">
-                    <Plus size={14} />
-                    Canal
-                  </button>
-                  <button onClick={() => addRole(category.id)} className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded text-sm transition-colors">
-                    <Shield size={14} />
+                  <button onClick={() => {
+                    setRoleModal({
+                      isOpen: true,
+                      mode: 'create',
+                      roleForm: { name: '', permissions: [], color: '' },
+                      categoryId: category.id,
+                      channelId: channel.id
+                    });
+                  }} className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded text-xs transition-colors">
+                    <Shield size={12} />
                     Rol
+                  </button>
+                  <button
+                    onClick={() => setSelectRoleModal({ open: true, targetType: 'channel', categoryId: category.id, channelId: channel.id })}
+                    className="flex items-center gap-1 bg-blue-700 hover:bg-blue-800 px-2 py-1 rounded text-xs transition-colors"
+                  >
+                    <Users size={12} />
+                    Agregar rol existente
+                  </button>
+                  <button onClick={() => handleDeleteChannel(category.id, channel.id, channel.name)} className="text-red-400 hover:text-red-300 p-1 transition-colors">
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>
 
-              {/* Roles de categoría */}
-              {category.roles.length > 0 && (
-                <div className="mb-4 ml-6">
-                  <h4 className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
-                    <Users size={14} />
-                    Roles de Categoría
-                  </h4>
+              {/* Roles del canal */}
+              {channel.roles.length > 0 && (
+                <div 
+                  className="mt-3 pt-3 border-t border-gray-600"
+                  onDragOver={handleDragOver}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, category.id, channel.id)}
+                >
+                  <h5 className="text-xs font-medium text-gray-400 mb-2 flex items-center gap-1">
+                    <Shield size={12} />
+                    Roles del Canal
+                  </h5>
                   <div className="flex flex-wrap gap-2">
-                    {category.roles.map((role) => (
+                    {channel.roles.map((role) => (
                       <div
                         key={role.id}
-                        className={`flex items-center gap-2 bg-gray-700 rounded px-3 py-1 cursor-move hover:bg-gray-600 transition-colors group ${
+                        className={`flex items-center gap-2 bg-gray-600 rounded px-2 py-1 cursor-move hover:bg-gray-500 transition-colors group ${
                           draggedType === 'role' && draggedItem?.id === role.id ? 'opacity-50 scale-95' : ''
                         }`}
                         draggable={true}
-                        onDragStart={(e) => handleDragStart(e, role, 'role', { categoryId: category.id })}
+                        onDragStart={(e) => handleDragStart(e, role, 'role', { categoryId: category.id, channelId: channel.id })}
                       >
-                        <Grip className="text-gray-500" size={12} />
+                        <Grip className="text-gray-500" size={10} />
                         <div 
-                          className="w-3 h-3 rounded-full"
+                          className="w-2 h-2 rounded-full"
                           style={{ backgroundColor: role.color }}
                         />
-                        <span className="text-sm font-medium">{role.name}</span>
+                        <span className="text-xs font-medium">{role.name}</span>
                         <span className="text-xs text-gray-400">({role.permissions.length})</span>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <ActionButton
-                            onClick={() => editRole(role, category.id)}
+                            onClick={() => handleEditRole(role, category.id, channel.id)}
                             variant="edit"
                             size="xs"
                             icon={Edit2}
                           />
                           <ActionButton
-                            onClick={() => handleDeleteRole(category.id, role.id, undefined, role.name)}
+                            onClick={() => handleDeleteRole(category.id, role.id, channel.id, role.name)}
                             variant="delete"
                             size="xs"
                             icon={Trash2}
@@ -371,132 +789,19 @@ const DragDropChannelsRoles: React.FC = () => {
                   </div>
                 </div>
               )}
-
-              {/* Canales */}
-              <div 
-                className="space-y-3 ml-6"
-                onDragOver={handleDragOver}
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, category.id)}
-              >
-                {category.channels.map((channel) => (
-                  <div
-                    key={channel.id}
-                    className={`bg-gray-700 rounded-lg p-3 transition-all duration-200 group ${
-                      draggedType === 'channel' && draggedItem?.id === channel.id ? 'opacity-50 scale-95' : ''
-                    }`}
-                    draggable={true}
-                    onDragStart={(e) => handleDragStart(e, channel, 'channel', { categoryId: category.id })}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Grip className="text-gray-500 cursor-grab" size={14} />
-                        <Hash className="text-gray-400" size={16} />
-                        <span className="text-white font-medium">{channel.name}</span>
-                        <span className="text-xs text-gray-400 bg-gray-600 px-2 py-1 rounded">
-                          {channel.type}
-                        </span>
-                        {channel.roles.length > 0 && (
-                          <span className="text-xs text-gray-400">
-                            {channel.roles.length} roles
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <ActionButton
-                          onClick={() => handleEditChannel(category.id, channel.id)}
-                          icon={Edit2}
-                          variant="edit"
-                          size="xs"
-                          title="Editar canal"
-                        />
-                        <ActionButton
-                          onClick={() => { copyChannel(category.id, channel.id); showNotification('Canal copiado'); }}
-                          icon={Copy}
-                          variant="secondary"
-                          size="xs"
-                          title="Copiar canal"
-                        />
-                        <ActionButton
-                          onClick={() => { pasteChannel(category.id); showNotification('Canal pegado'); }}
-                          icon={Upload}
-                          variant="success"
-                          size="xs"
-                          title="Pegar canal"
-                          disabled={!isChannelInClipboard}
-                        />
-                        <button onClick={() => addRole(category.id, channel.id)} className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded text-xs transition-colors">
-                          <Shield size={12} />
-                          Rol
-                        </button>
-                        <button onClick={() => handleDeleteChannel(category.id, channel.id, channel.name)} className="text-red-400 hover:text-red-300 p-1 transition-colors">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Roles del canal */}
-                    {channel.roles.length > 0 && (
-                      <div 
-                        className="mt-3 pt-3 border-t border-gray-600"
-                        onDragOver={handleDragOver}
-                        onDragEnter={handleDragEnter}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(e) => handleDrop(e, category.id, channel.id)}
-                      >
-                        <h5 className="text-xs font-medium text-gray-400 mb-2 flex items-center gap-1">
-                          <Shield size={12} />
-                          Roles del Canal
-                        </h5>
-                        <div className="flex flex-wrap gap-2">
-                          {channel.roles.map((role) => (
-                            <div
-                              key={role.id}
-                              className={`flex items-center gap-2 bg-gray-600 rounded px-2 py-1 cursor-move hover:bg-gray-500 transition-colors group ${
-                                draggedType === 'role' && draggedItem?.id === role.id ? 'opacity-50 scale-95' : ''
-                              }`}
-                              draggable={true}
-                              onDragStart={(e) => handleDragStart(e, role, 'role', { categoryId: category.id, channelId: channel.id })}
-                            >
-                              <Grip className="text-gray-500" size={10} />
-                              <div 
-                                className="w-2 h-2 rounded-full"
-                                style={{ backgroundColor: role.color }}
-                              />
-                              <span className="text-xs font-medium">{role.name}</span>
-                              <span className="text-xs text-gray-400">({role.permissions.length})</span>
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <ActionButton
-                                  onClick={() => editRole(role, category.id, channel.id)}
-                                  variant="edit"
-                                  size="xs"
-                                  icon={Edit2}
-                                />
-                                <ActionButton
-                                  onClick={() => handleDeleteRole(category.id, role.id, channel.id, role.name)}
-                                  variant="delete"
-                                  size="xs"
-                                  icon={Trash2}
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                
-                {category.channels.length === 0 && (
-                  <div className="text-gray-500 text-center py-4 border-2 border-dashed border-gray-600 rounded">
-                    Arrastra canales aquí o crea uno nuevo
-                  </div>
-                )}
-              </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
+
+        {category.channels.length === 0 && (
+          <div className="text-gray-500 text-center py-4 border-2 border-dashed border-gray-600 rounded">
+            Arrastra canales aquí o crea uno nuevo
+          </div>
+        )}
+      </div>
+    </div>
+  ))}
+</div>
 
         {/* Instrucciones */}
         <div className="mt-8 p-4 bg-gray-800 rounded-lg">
@@ -534,12 +839,95 @@ const DragDropChannelsRoles: React.FC = () => {
         </div>
       </div>
 
-      {/* Modales de edición y confirmación */}
+      {/* Modales de edición, selección de roles y confirmación */}
       {editCategoryId && (
         <CategoryEditModal
           initialName={categories.find(cat => cat.id === editCategoryId)?.name || ''}
           onSave={handleSaveCategoryEdit}
           onCancel={handleCancelEdit}
+        />
+      )}
+      {/* Modal de rol: crear, editar, ver */}
+      {roleModal.isOpen && (
+        <RoleModal
+          isOpen={roleModal.isOpen}
+          mode={roleModal.mode}
+          editingRole={roleModal.editingRole}
+          existingRole={roleModal.existingRole}
+          roleForm={roleModal.roleForm}
+          setRoleForm={value =>
+            setRoleModal(prev => ({
+              ...prev,
+              roleForm: typeof value === 'function' ? value(prev.roleForm) : value
+            }))
+          }
+          availablePermissions={AVAILABLE_PERMISSIONS}
+          roleColors={ROLE_COLORS}
+          onSave={async (roleData) => {
+            // Create or update the role
+            const newRole: Role = {
+              id: roleModal.editingRole?.id || `role-${Date.now()}`,
+              name: roleData.name,
+              permissions: roleData.permissions,
+              color: roleData.color
+            };
+            
+            // Update categories with the new/updated role
+            setCategories(prev => prev.map(cat => {
+              if (cat.id === roleData.categoryId) {
+                if (roleData.channelId) {
+                  // Role for a channel
+                  return {
+                    ...cat,
+                    channels: cat.channels.map(ch => {
+                      if (ch.id === roleData.channelId) {
+                        const existingRoleIndex = ch.roles.findIndex(r => r.id === newRole.id);
+                        if (existingRoleIndex >= 0) {
+                          // Update existing role
+                          const updatedRoles = [...ch.roles];
+                          updatedRoles[existingRoleIndex] = newRole;
+                          return { ...ch, roles: updatedRoles };
+                        } else {
+                          // Add new role
+                          return { ...ch, roles: [...ch.roles, newRole] };
+                        }
+                      }
+                      return ch;
+                    })
+                  };
+                } else {
+                  // Role for a category
+                  const existingRoleIndex = cat.roles.findIndex(r => r.id === newRole.id);
+                  if (existingRoleIndex >= 0) {
+                    // Update existing role
+                    const updatedRoles = [...cat.roles];
+                    updatedRoles[existingRoleIndex] = newRole;
+                    return { ...cat, roles: updatedRoles };
+                  } else {
+                    // Add new role
+                    return { ...cat, roles: [...cat.roles, newRole] };
+                  }
+                }
+              }
+              return cat;
+            }));
+            
+            // Close the modal
+            setRoleModal(prev => ({ ...prev, isOpen: false }));
+          }}
+          onCancel={() => setRoleModal(prev => ({ ...prev, isOpen: false }))}
+          onTogglePermission={(permission: string) => {
+            setRoleModal(prev => ({
+              ...prev,
+              roleForm: {
+                ...prev.roleForm,
+                permissions: prev.roleForm.permissions.includes(permission)
+                  ? prev.roleForm.permissions.filter((p: string) => p !== permission)
+                  : [...prev.roleForm.permissions, permission]
+              }
+            }));
+          }}
+          isLoading={false}
         />
       )}
       {editChannel && (
@@ -556,6 +944,21 @@ const DragDropChannelsRoles: React.FC = () => {
           })()}
           onSave={handleSaveChannelEdit}
           onCancel={handleCancelEdit}
+        />
+      )}
+      {selectRoleModal.open && (
+        <SelectRoleModal
+          roles={getAllRoles()}
+          onCancel={() => setSelectRoleModal({ open: false, targetType: null, categoryId: null, channelId: null })}
+          onConfirm={(selectedRoles) => {
+            if (selectRoleModal.targetType === 'category' && selectRoleModal.categoryId) {
+              assignRolesToCategory(selectRoleModal.categoryId, selectedRoles);
+            } else if (selectRoleModal.targetType === 'channel' && selectRoleModal.categoryId && selectRoleModal.channelId) {
+              assignRolesToChannel(selectRoleModal.categoryId, selectRoleModal.channelId, selectedRoles);
+            }
+            setSelectRoleModal({ open: false, targetType: null, categoryId: null, channelId: null });
+          }}
+          title={selectRoleModal.targetType === 'category' ? 'Agregar roles a categoría' : 'Agregar roles a canal'}
         />
       )}
       {deleteTarget && (
