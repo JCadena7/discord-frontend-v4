@@ -97,6 +97,92 @@ export const moveChannelBetweenCategories = (
   return newCategories;
 };
 
+// Funciones de conversión de formato
+
+// Esta función convierte la estructura de datos del frontend a la que espera el backend.
+export const convertToBackendFormat = (categories: Category[]): any[] => {
+  const createPermissionOverwrite = (role: Role) => {
+    const overwrite: any = { id: role.id };
+
+    // Aplica la regla: solo incluir 'allow' si tiene permisos.
+    // El modelo de frontend actual no tiene 'deny', por lo que se omite, 
+    // cumpliendo la regla de no incluir 'deny' si está vacío.
+    if (role.permissions && role.permissions.length > 0) {
+      overwrite.allow = role.permissions;
+    }
+
+    return overwrite;
+  };
+
+  return categories.map(category => {
+    const categoryPermissions = category.roles.map(createPermissionOverwrite);
+
+    return {
+      name: category.name,
+      description: category.description || '',
+      color: category.color || '#FFFFFF',
+      permissions: categoryPermissions,
+      channels: category.channels.map(channel => {
+        const channelData: any = {
+          name: channel.name,
+          type: channel.type,
+          description: channel.description || '',
+          color: channel.color || '#FFFFFF',
+          isMultiple: channel.isMultiple || false,
+        };
+
+        // Solo añadir 'permissions' si el canal NO hereda los de la categoría.
+        if (channel.inheritPermissions === false) {
+          channelData.permissions = channel.roles.map(createPermissionOverwrite);
+        }
+
+        return channelData;
+      }),
+    };
+  });
+};
+
+// Esta función convierte la estructura de datos del backend a la que usa el frontend.
+export const convertFromBackendFormat = (backendData: any[]): Category[] => {
+  return backendData.map((category, index) => {
+    // Convierte las sobrescrituras de permisos a roles de categoría
+    const categoryRoles = (category.permissions || []).map((p: any) => ({
+      id: p.id,
+      name: `Rol (ID: ${p.id})`, // Nombre genérico, se puede mejorar si hay más datos
+      permissions: p.allow || [],
+      color: '#888888',
+    }));
+
+    return {
+      id: `cat-${Date.now()}-${index}`,
+      name: category.name,
+      description: category.description,
+      color: category.color,
+      roles: categoryRoles,
+      channels: (category.channels || []).map((channel: any, chIndex: number) => {
+        // Convierte las sobrescrituras de permisos a roles de canal
+        const channelRoles = (channel.permissions || []).map((p: any) => ({
+          id: p.id,
+          name: `Rol (ID: ${p.id})`,
+          permissions: p.allow || [],
+          color: '#888888',
+        }));
+
+        return {
+          id: `ch-${Date.now()}-${index}-${chIndex}`,
+          name: channel.name,
+          type: channel.type,
+          description: channel.description,
+          color: channel.color,
+          isMultiple: channel.isMultiple,
+          roles: channelRoles,
+          inheritPermissions: channelRoles.length === 0,
+        };
+      }),
+    };
+  });
+};
+
 export const reorderCategories = (
   categories: Category[],
   draggedCategoryId: string,

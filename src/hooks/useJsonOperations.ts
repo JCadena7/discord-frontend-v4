@@ -6,39 +6,52 @@ interface UseJsonOperationsProps {
   categories: Category[];
   setCategories: (categories: Category[]) => void;
   showNotification: (message: string) => void;
+  toBackend?: (categories: Category[]) => any;
+  fromBackend?: (data: any) => Category[];
 }
 
-export const useJsonOperations = ({ categories, setCategories, showNotification }: UseJsonOperationsProps) => {
+export const useJsonOperations = ({
+  categories,
+  setCategories,
+  showNotification,
+  toBackend,
+  fromBackend,
+}: UseJsonOperationsProps) => {
   const [jsonInput, setJsonInput] = useState<string>('');
+
   const copyToClipboard = useCallback(async (): Promise<void> => {
     try {
-      const jsonData = JSON.stringify(categories, null, 2);
-      await navigator.clipboard.writeText(jsonData);
+      const dataToCopy = toBackend ? toBackend(categories) : categories;
+      const jsonString = JSON.stringify(dataToCopy, null, 2);
+      await navigator.clipboard.writeText(jsonString);
       showNotification('¡JSON copiado al portapapeles!');
     } catch (err) {
       showNotification('Error al copiar JSON');
     }
-  }, [categories, showNotification]);
+  }, [categories, showNotification, toBackend]);
 
   const pasteFromClipboard = useCallback(async (): Promise<void> => {
     try {
       const text = await navigator.clipboard.readText();
-      const parsed = JSON.parse(text);
-      
-      if (isValidCategoriesStructure(parsed)) {
-        setCategories(parsed);
+      let parsedData = JSON.parse(text);
+      if (fromBackend) {
+        parsedData = fromBackend(parsedData);
+      }
+      if (isValidCategoriesStructure(parsedData)) {
+        setCategories(parsedData);
         showNotification('¡JSON importado correctamente!');
       } else {
-        showNotification('Formato JSON inválido');
+        showNotification('La estructura del JSON no es válida o la conversión falló.');
       }
     } catch (err) {
       showNotification('Error al importar JSON - Verifica el formato');
     }
-  }, [setCategories, showNotification]);
+  }, [setCategories, showNotification, fromBackend]);
 
   const downloadJSON = useCallback((): void => {
-    const jsonData = JSON.stringify(categories, null, 2);
-    const blob = new Blob([jsonData], { type: 'application/json' });
+    const dataToDownload = toBackend ? toBackend(categories) : categories;
+    const jsonString = JSON.stringify(dataToDownload, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -48,7 +61,7 @@ export const useJsonOperations = ({ categories, setCategories, showNotification 
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showNotification('¡Archivo JSON descargado!');
-  }, [categories, showNotification]);
+  }, [categories, showNotification, toBackend]);
 
   const handleFileUpload = useCallback((file: File): void => {
     if (file && file.type === 'application/json') {
@@ -57,12 +70,15 @@ export const useJsonOperations = ({ categories, setCategories, showNotification 
         try {
           const result = e.target?.result;
           if (typeof result === 'string') {
-            const parsed = JSON.parse(result);
-            if (isValidCategoriesStructure(parsed)) {
-              setCategories(parsed);
+            let parsedData = JSON.parse(result);
+            if (fromBackend) {
+              parsedData = fromBackend(parsedData);
+            }
+            if (isValidCategoriesStructure(parsedData)) {
+              setCategories(parsedData);
               showNotification('¡Archivo JSON cargado correctamente!');
             } else {
-              showNotification('Formato de archivo inválido');
+              showNotification('La estructura del JSON no es válida o la conversión falló.');
             }
           }
         } catch (err) {
@@ -73,24 +89,27 @@ export const useJsonOperations = ({ categories, setCategories, showNotification 
     } else {
       showNotification('Por favor selecciona un archivo JSON válido');
     }
-  }, [setCategories, showNotification]);
+  }, [setCategories, showNotification, fromBackend]);
 
-  const applyJsonInput = useCallback((jsonInput: string): boolean => {
+  const applyJsonInput = useCallback((input: string): boolean => {
     try {
-      const parsed = JSON.parse(jsonInput);
-      if (isValidCategoriesStructure(parsed)) {
-        setCategories(parsed);
-        showNotification('¡Configuración aplicada!');
+      let parsedData = JSON.parse(input);
+      if (fromBackend) {
+        parsedData = fromBackend(parsedData);
+      }
+      if (isValidCategoriesStructure(parsedData)) {
+        setCategories(parsedData);
+        showNotification('Configuración JSON aplicada correctamente.');
         return true;
       } else {
-        showNotification('Formato JSON inválido');
+        showNotification('La estructura del JSON no es válida o la conversión falló.');
         return false;
       }
-    } catch (err) {
-      showNotification('JSON mal formateado');
+    } catch (error) {
+      showNotification('Error al procesar el JSON. Verifica la sintaxis y el formato.');
       return false;
     }
-  }, [setCategories, showNotification]);
+  }, [setCategories, showNotification, fromBackend]);
 
   return {
     jsonInput,

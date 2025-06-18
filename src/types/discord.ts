@@ -69,6 +69,10 @@ export interface Channel {
   name: string;
   type: 'text' | 'voice';
   roles: Role[];
+  description?: string;
+  color?: string;
+  isMultiple?: boolean;
+  inheritPermissions?: boolean;
 }
 
 export interface Category {
@@ -76,6 +80,8 @@ export interface Category {
   name: string;
   channels: Channel[];
   roles: Role[];
+  description?: string;
+  color?: string;
 }
 
 // Tipos para drag and drop
