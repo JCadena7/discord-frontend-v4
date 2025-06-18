@@ -87,3 +87,85 @@ export interface Category {
 // Tipos para drag and drop
 export type DraggedType = 'channel' | 'category' | 'role' | null;
 export type DraggedItem = Channel | Category | Role | null;
+
+// --- START: API Response Types for /discord-bot/:guildId/categories/with-channels ---
+
+export interface ApiPermissionOverwrite {
+  allow: string[];
+  deny: string[];
+}
+
+export interface ApiItemPermission {
+  roleId: string;
+  roleName: string; // Included for convenience, though might not be in all API versions
+  allow: string[]; // Assuming this is what 'allow' from the example means
+  overwrites: ApiPermissionOverwrite; // Assuming this structure for overwrites
+}
+
+export interface ApiChannel { // Represents a channel within a category's 'channels' array
+  id: string;
+  name: string;
+  type: 'text' | 'voice' | 'category' | string; // Allow for other types too
+  position: number;
+  rawPosition?: number; // As seen in example
+  parentId: string | null;
+  description?: string;
+  permissions: ApiItemPermission[];
+}
+
+export interface ApiCategoryItem { // Represents a category item from the main 'items' array
+  id: string;
+  name: string;
+  type: 'category';
+  position: number;
+  rawPosition?: number;
+  parentId: string | null;
+  description?: string;
+  permissions: ApiItemPermission[];
+  channels?: ApiChannel[]; // Channels nested under a category
+}
+
+export interface ApiChannelItem { // Represents a channel item from the main 'items' array (not nested)
+  id: string;
+  name: string;
+  type: 'text' | 'voice' | string; // Not 'category'
+  position: number;
+  rawPosition?: number;
+  parentId: string | null;
+  description?: string;
+  permissions: ApiItemPermission[];
+}
+
+// A union type for items in the 'items' array
+export type ApiItem = ApiCategoryItem | ApiChannelItem;
+
+export interface ApiRole {
+  id: string;
+  name: string;
+  color: string; // Example shows hex color
+  position: number;
+  permissions: string[];
+  mentionable: boolean;
+  managed: boolean;
+}
+
+export interface ServerStructureData {
+  serverId: string;
+  serverName: string;
+  roles: ApiRole[];
+  items: ApiItem[]; // This will contain both categories and channels not parented
+}
+
+export interface ServerStructureApiResponse {
+  status: number;
+  message: string;
+  data: ServerStructureData;
+  meta?: { // Optional meta field
+    totalCategories?: number;
+    totalChannels?: number;
+    lastUpdated?: string;
+    version?: string;
+  };
+}
+
+// --- END: API Response Types ---

@@ -4,24 +4,25 @@ import Button from '../../components/common/Button';
 import ChannelCard from '../../components/channels/ChannelCard';
 import EditChannelModal from '../../components/channels/EditChannelModal';
 import { useChannelsStore } from '../../store/channelsStore';
-import { useCategoriesStore } from '../../store/categoriesStore';
+import { useServerStructureStore } from '../../store/serverStructureStore'; // Updated import
 import toast from 'react-hot-toast';
 
 const ChannelsView: React.FC = () => {
   const { channels, fetchChannels, addChannel, updateChannel, deleteChannel, isLoading } = useChannelsStore();
-  const { categories, fetchCategories } = useCategoriesStore();
+  // Updated to useServerStructureStore and commented out unused variables
+  const { /* serverData, */ fetchServerStructure } = useServerStructureStore();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // Create a map of category IDs to names for easier lookup
-  const categoryNames = categories.reduce((acc, category) => {
-    acc[category.id] = category.name;
-    return acc;
-  }, {} as { [key: string]: string });
+  // Create a map of category IDs to names for easier lookup - Commented out as categories is not directly available
+  // const categoryNames = categories.reduce((acc, category) => {
+  //   acc[category.id] = category.name;
+  //   return acc;
+  // }, {} as { [key: string]: string });
 
   useEffect(() => {
     fetchChannels();
-    fetchCategories();
-  }, [fetchChannels, fetchCategories]);
+    fetchServerStructure(); // Updated function name
+  }, [fetchChannels, fetchServerStructure]);
 
   const handleCreateChannel = async (channelData: any) => {
     try {
@@ -89,7 +90,7 @@ const ChannelsView: React.FC = () => {
             channel={channel}
             onUpdate={handleUpdateChannel}
             onDelete={handleDeleteChannel}
-            categoryNames={categoryNames}
+            // categoryNames={categoryNames} // Commented out
           />
         ))}
       </div>

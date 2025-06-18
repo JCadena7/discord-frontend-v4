@@ -4,7 +4,7 @@ import Button from '../common/Button';
 import Input from '../common/Input';
 import Select from '../common/Select';
 import { DiscordChannel, ChannelType } from '../../types/discord';
-import { useCategoriesStore } from '../../store/categoriesStore';
+import { useServerStructureStore } from '../../store/serverStructureStore';
 
 interface EditChannelModalProps {
   channel?: DiscordChannel;
@@ -19,7 +19,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const { categories, fetchCategories } = useCategoriesStore();
+  // const { categories, fetchServerStructure } = useServerStructureStore();
   
   const [formData, setFormData] = useState<Partial<DiscordChannel>>({
     name: channel?.name || '',
@@ -28,9 +28,9 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
+  // useEffect(() => {
+  //   fetchServerStructure();
+  // }, [fetchServerStructure]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -73,10 +73,10 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
 
   const categoryOptions = [
     { value: 'none', label: 'No Category' },
-    ...categories.map((category) => ({
-      value: category.id,
-      label: category.name,
-    })),
+    // ...categories.map((category) => ({
+    //   value: category.id,
+    //   label: category.name,
+    // })),
   ];
 
   return (

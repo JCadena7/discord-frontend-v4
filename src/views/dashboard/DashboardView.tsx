@@ -3,14 +3,15 @@ import { Users, MessageSquare, FolderTree } from 'lucide-react';
 import Card from '../../components/common/Card';
 import { useRolesStore } from '../../store/rolesStore';
 import { useChannelsStore } from '../../store/channelsStore';
-import { useCategoriesStore } from '../../store/categoriesStore';
+import { useServerStructureStore } from '../../store/serverStructureStore'; // Updated import
 import { Link, useParams } from 'react-router-dom';
 import { getBotStatus } from '../../services/botStatus';
 
 const DashboardView: React.FC = () => {
   const { roles, fetchRoles } = useRolesStore();
   const { channels, fetchChannels } = useChannelsStore();
-  const { categories, fetchCategories } = useCategoriesStore();
+  // Updated to useServerStructureStore and commented out unused variables
+  const { /* serverData, */ fetchServerStructure } = useServerStructureStore();
   const { guildId } = useParams();
   const [botPresent, setBotPresent] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,10 +41,10 @@ const DashboardView: React.FC = () => {
     if (botPresent) {
       fetchRoles();
       fetchChannels();
-      if (guildId) fetchCategories(guildId);
+      if (guildId) fetchServerStructure(guildId); // Updated function name
     }
     // Solo hacemos fetch si bot está presente
-  }, [botPresent, fetchRoles, fetchChannels, fetchCategories]);
+  }, [botPresent, fetchRoles, fetchChannels, fetchServerStructure]);
 
   const stats = [
     {
@@ -60,7 +61,8 @@ const DashboardView: React.FC = () => {
     },
     {
       title: 'Total Categories',
-      value: categories.length,
+      // value: categories.length, // Commented out as categories is not directly available
+      value: 0, // Placeholder value
       icon: <FolderTree size={24} className="text-orange-500" />,
       link: '/categories',
     },
