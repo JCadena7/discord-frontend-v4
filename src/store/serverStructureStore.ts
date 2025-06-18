@@ -1,26 +1,25 @@
 import { create } from 'zustand';
 import {
-  // Import new API response types
-  ServerStructureApiResponse,
   ServerStructureData,
-  ApiItem,
-  ApiRole as ServerApiRole, // Alias to avoid conflict if any
-  ApiChannel as ServerApiChannel,
-  ApiCategoryItem as ServerApiCategoryItem,
+  ApiRole as ServerApiRole,
+  ApiChannel,
+  ApiCategoryItem,
+  ApiChannelItem,
   ApiItemPermission,
-} from '../types/discord'; // Assuming new types are in discord.ts
-import {
-  Category as DndCategory, // This is the type DndView expects
+  Category as DndCategory,
   Channel as DndChannel,
-  Role as DndRole
-} from '../types/discord'; // Existing types for DndView
+  Role as DndRole,
+} from '../types/discord';
 import { categoriesApi } from '../services/api';
+import { mapPermissionsToUI } from '../utils/permissions';
 
 interface ServerStructureState {
   serverData: ServerStructureData | null;
+  isDirty: boolean; // To track unsaved changes
   isLoading: boolean;
   error: string | null;
   fetchServerStructure: (guildId: string) => Promise<void>;
+  updateServerStructure: (guildId: string) => Promise<void>; // To save all changes
 
   // CRUD Actions - Local Updates Only
   addCategoryStore: (newCategoryData: Omit<ApiCategoryItem, 'id' | 'position' | 'channels' | 'permissions'>) => void;
@@ -47,6 +46,13 @@ interface ServerStructureState {
 // Helper to generate simple unique IDs (for local use)
 const generateId = (prefix: string = 'item') => `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+// Helper function to check if a role has actual permission overwrites
+const hasPermissionOverwrites = (permission: ApiItemPermission): boolean => {
+  const { overwrites } = permission;
+  return (overwrites.allow && overwrites.allow.length > 0) || 
+         (overwrites.deny && overwrites.deny.length > 0);
+};
+
 // Helper function to transform ServerStructureData to DndCategory[]
 const transformServerDataToDndCategories = (serverData: ServerStructureData | null): DndCategory[] => {
   if (!serverData) {
@@ -60,53 +66,32 @@ const transformServerDataToDndCategories = (serverData: ServerStructureData | nu
   // Create a map of API roles for quick lookup
   const apiRolesMap = new Map<string, ServerApiRole>(apiRoles.map(r => [r.id, r]));
 
-  // Function to transform API permissions to DndView Role permissions
-  // This is a simplified transformation. DndView's Role.permissions is string[].
-  // ApiItemPermission has allow/deny. ApiRole has a general permissions string[].
-  // We'll use ApiItemPermission's 'allow' for now, or ApiRole's permissions if direct.
-  const transformPermissions = (itemPermissions: ApiItemPermission[], roleIdToFilter?: string): DndRole[] => {
-    return itemPermissions
-      .map(p => {
-        const apiRole = apiRolesMap.get(p.roleId);
-        if (!apiRole) return null;
-        // If roleIdToFilter is provided, only include that role
-        if (roleIdToFilter && p.roleId !== roleIdToFilter) return null;
-
-        return {
-          id: apiRole.id,
-          name: apiRole.name,
-          color: apiRole.color, // API gives hex string, DndView expects string
-          permissions: p.overwrites.allow || [], // Or combine with apiRole.permissions if needed
-        };
-      })
-      .filter(Boolean) as DndRole[];
-  };
-
-  // More robust role transformation for categories/channels
+  // More robust role transformation for categories/channels - ONLY include roles with actual overwrites
   const getDndRoles = (itemApiPermissions: ApiItemPermission[]): DndRole[] => {
-    return itemApiPermissions.map(apiPerm => {
-      const roleDetail = apiRolesMap.get(apiPerm.roleId);
-      return {
-        id: apiPerm.roleId,
-        name: roleDetail?.name || apiPerm.roleName || 'Unknown Role',
-        color: roleDetail?.color || '#000000',
-        permissions: apiPerm.overwrites.allow, // Or a combination if needed
-      };
-    });
+    return itemApiPermissions
+      .filter(apiPerm => hasPermissionOverwrites(apiPerm)) // Filter out roles without overwrites
+      .map(apiPerm => {
+        const roleDetail = apiRolesMap.get(apiPerm.roleId);
+        return {
+          id: apiPerm.roleId,
+          name: roleDetail?.name || apiPerm.roleName || 'Unknown Role',
+          color: roleDetail?.color || '#000000',
+          // Mapea los permisos específicos de esta categoría/canal
+          permissions: mapPermissionsToUI(apiPerm.overwrites.allow), // Traduce las claves de permiso a etiquetas de UI
+          // Si necesitas también los permisos denegados, podrías agregar:
+          // deniedPermissions: mapPermissionsToUI(apiPerm.overwrites.deny),
+        };
+      });
   };
-
 
   // First pass: Create categories
   items.forEach(item => {
     if (item.type === 'category') {
-      const categoryItem = item as ServerApiCategoryItem;
+      const categoryItem = item as ApiCategoryItem;
       dndCategories.push({
         id: categoryItem.id,
         name: categoryItem.name,
-        // Transform category-specific roles. The example shows roles directly on categories.
-        // The provided JSON has `permissions` on items, which are role-based.
-        // The original DndView Category type has a `roles: Role[]`.
-        // We need to decide how to populate this. If `categoryItem.permissions` are the category roles:
+        // Transform category-specific roles - only those with actual overwrites
         roles: getDndRoles(categoryItem.permissions),
         channels: [], // Will be populated in the next pass
         description: categoryItem.description,
@@ -117,14 +102,14 @@ const transformServerDataToDndCategories = (serverData: ServerStructureData | nu
   // Second pass: Populate channels within categories
   items.forEach(item => {
     if (item.type !== 'category' && item.parentId) {
-      const channelItem = item as ServerApiChannel; // Or ApiChannelItem
+      const channelItem = item as ApiChannelItem; // This is a flat channel item
       const parentCategory = dndCategories.find(cat => cat.id === channelItem.parentId);
       if (parentCategory) {
         parentCategory.channels.push({
           id: channelItem.id,
           name: channelItem.name,
-          type: channelItem.type === 'voice' ? 'voice' : 'text', // Map API type to DndView type
-          // Transform channel-specific roles
+          type: (channelItem.type === 'voice' ? 'voice' : 'text') as 'text' | 'voice', // Map API type to DndView type
+          // Transform channel-specific roles - only those with actual overwrites
           roles: getDndRoles(channelItem.permissions),
           description: channelItem.description,
         });
@@ -134,23 +119,23 @@ const transformServerDataToDndCategories = (serverData: ServerStructureData | nu
 
   // Sort channels within categories by position, similar to DndView example
   dndCategories.forEach(category => {
-    const originalCategory = items.find(i => i.id === category.id) as ServerApiCategoryItem | undefined;
+    const originalCategory = items.find(i => i.id === category.id) as ApiCategoryItem | undefined;
     if (originalCategory && originalCategory.channels) {
          // If API provides channels directly under category (as in example response's 'items' which has category with 'channels' array)
-         category.channels = originalCategory.channels.map(apiCh => ({
+         category.channels = originalCategory.channels.map((apiCh: ApiChannel) => ({
             id: apiCh.id,
             name: apiCh.name,
-            type: apiCh.type === 'voice' ? 'voice' : 'text',
+            type: (apiCh.type === 'voice' ? 'voice' : 'text') as 'text' | 'voice',
             roles: getDndRoles(apiCh.permissions),
             description: apiCh.description,
-         })).sort((a, b) => {
-            const itemA = originalCategory.channels?.find(ch => ch.id === a.id);
-            const itemB = originalCategory.channels?.find(ch => ch.id === b.id);
+         })).sort((a: DndChannel, b: DndChannel) => {
+            const itemA = originalCategory.channels?.find((ch: ApiChannel) => ch.id === a.id);
+            const itemB = originalCategory.channels?.find((ch: ApiChannel) => ch.id === b.id);
             return (itemA?.position || 0) - (itemB?.position || 0);
          });
     } else {
         // If channels are sourced from the flat 'items' list by parentId
-        category.channels.sort((a,b) => {
+        category.channels.sort((a: DndChannel, b: DndChannel) => {
             const itemA = items.find(i => i.id === a.id);
             const itemB = items.find(i => i.id === b.id);
             return (itemA?.position || 0) - (itemB?.position || 0);
@@ -158,9 +143,8 @@ const transformServerDataToDndCategories = (serverData: ServerStructureData | nu
     }
   });
 
-
   // Sort categories by position
-  dndCategories.sort((a,b) => {
+  dndCategories.sort((a: DndCategory, b: DndCategory) => {
     const itemA = items.find(i => i.id === a.id);
     const itemB = items.find(i => i.id === b.id);
     return (itemA?.position || 0) - (itemB?.position || 0);
@@ -169,39 +153,47 @@ const transformServerDataToDndCategories = (serverData: ServerStructureData | nu
   return dndCategories;
 };
 
-
 export const useServerStructureStore = create<ServerStructureState>()((set, get) => ({
   serverData: null,
+  isDirty: false,
   isLoading: false,
   error: null,
+
   fetchServerStructure: async (guildId: string) => {
     set({ isLoading: true, error: null });
     try {
-      // Assuming categoriesApi.getCategoriesWithChannels returns the full ServerStructureApiResponse
       const response = await categoriesApi.getCategoriesWithChannels(guildId);
-      // The actual server structure is in response.data.data based on the issue
-      set({ serverData: response.data.data, isLoading: false });
+      set({ serverData: response.data.data, isLoading: false, isDirty: false }); // Reset dirty flag on fetch
     } catch (error) {
-      let errorMessage = 'Failed to fetch server structure';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      }
+      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch server structure';
       set({ error: errorMessage, isLoading: false });
       console.error('Error fetching server structure:', error);
     }
   },
 
-  // Add other actions like addCategory, updateCategory, deleteCategory later.
-  // For now, focus on fetching and displaying.
-  // These actions would need to manipulate the `serverData` state
-  // and potentially call API endpoints.
+  updateServerStructure: async (guildId: string) => {
+    set({ isLoading: true, error: null });
+    const serverData = get().serverData;
+    if (!serverData) {
+      set({ isLoading: false, error: 'No server data to save.' });
+      return;
+    }
+    try {
+      await categoriesApi.updateServerStructure(guildId, serverData);
+      set({ isLoading: false, isDirty: false }); // Reset dirty flag on successful save
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save server structure';
+      set({ error: errorMessage, isLoading: false });
+      console.error('Error saving server structure:', error);
+    }
+  },
 
-  // Example of how a selector could be exposed if needed directly from store instance
-  // (though typically you'd use a hook like `useStore(state => state.selectorName)` in the component)
-  // getTransformedDndCategories: () => transformServerDataToDndCategories(get().serverData),
+  applyJsonToStore: (newServerData: ServerStructureData) => {
+    set({ serverData: newServerData, isDirty: true });
+  },
 
   // --- CRUD Actions Implementation ---
-  addCategoryStore: (newCategoryData) => set(state => {
+  addCategoryStore: (newCategoryData: Omit<ApiCategoryItem, 'id' | 'position' | 'channels' | 'permissions'>) => set(state => {
     if (!state.serverData) return state;
     const newCategory: ApiCategoryItem = {
       ...newCategoryData,
@@ -210,17 +202,18 @@ export const useServerStructureStore = create<ServerStructureState>()((set, get)
       channels: [],
       permissions: [],
       type: 'category',
-      parentId: null, // Categories are top-level
+      parentId: null,
     };
     return {
       serverData: {
         ...state.serverData,
         items: [...state.serverData.items, newCategory],
-      }
+      },
+      isDirty: true
     };
   }),
 
-  updateCategoryStore: (categoryId, updatedCategoryData) => set(state => {
+  updateCategoryStore: (categoryId: string, updatedCategoryData: Partial<ApiCategoryItem>) => set(state => {
     if (!state.serverData) return state;
     return {
       serverData: {
@@ -230,24 +223,25 @@ export const useServerStructureStore = create<ServerStructureState>()((set, get)
             ? { ...item, ...updatedCategoryData } as ApiCategoryItem
             : item
         ),
-      }
+      },
+      isDirty: true
     };
   }),
 
-  deleteCategoryStore: (categoryId) => set(state => {
+  deleteCategoryStore: (categoryId: string) => set(state => {
     if (!state.serverData) return state;
-    // Also delete channels within this category
     const channelsInCategory = state.serverData.items.filter(item => item.parentId === categoryId);
     const channelIdsInCategory = channelsInCategory.map(ch => ch.id);
     return {
       serverData: {
         ...state.serverData,
         items: state.serverData.items.filter(item => item.id !== categoryId && !channelIdsInCategory.includes(item.id)),
-      }
+      },
+      isDirty: true
     };
   }),
 
-  addChannelStore: (categoryId, newChannelData) => set(state => {
+  addChannelStore: (categoryId: string, newChannelData: Omit<ApiChannel, 'id' | 'position' | 'permissions'>) => set(state => {
     if (!state.serverData) return state;
     const parentCategory = state.serverData.items.find(item => item.id === categoryId && item.type === 'category') as ApiCategoryItem | undefined;
     if (!parentCategory) return state;
@@ -255,93 +249,92 @@ export const useServerStructureStore = create<ServerStructureState>()((set, get)
     const newChannel: ApiChannel = {
       ...newChannelData,
       id: generateId('ch'),
-      position: parentCategory.channels?.length || 0, // Position within the category
+      position: parentCategory.channels?.length || 0,
       permissions: [],
       parentId: categoryId,
-      // type is part of newChannelData
     };
 
     const updatedItems = state.serverData.items.map(item => {
       if (item.id === categoryId && item.type === 'category') {
+        const category = item as ApiCategoryItem;
         return {
-          ...item,
-          channels: [...(item.channels || []), newChannel]
+          ...category,
+          channels: [...(category.channels || []), newChannel]
         } as ApiCategoryItem;
       }
       return item;
     });
-    // Also add to flat list if structure requires it (current DndView uses nested, but API might be flat)
-    // For now, assuming channels are primarily managed within category.channels for DndView
-    // If the main `items` list needs to be flat, newChannel should also be added there.
-    // Based on current transform, `items` is the source of truth.
-    // So, we add the channel to items array directly.
+
     const newFlatChannel: ApiChannelItem = {
       id: newChannel.id,
       name: newChannel.name,
-      type: newChannel.type, // 'text' | 'voice' | string
-      position: newChannel.position, // This might need to be global position or category relative
+      type: newChannel.type,
+      position: newChannel.position,
       parentId: newChannel.parentId,
       description: newChannel.description,
       permissions: newChannel.permissions,
     };
 
-
     return {
       serverData: {
         ...state.serverData,
-        items: [...state.serverData.items, newFlatChannel], // Add as a flat item
-      }
+        items: [...updatedItems, newFlatChannel],
+      },
+      isDirty: true
     };
   }),
 
-  updateChannelStore: (channelId, updatedChannelData) => set(state => {
+  updateChannelStore: (channelId: string, updatedChannelData: Partial<ApiChannel>) => set(state => {
     if (!state.serverData) return state;
     return {
       serverData: {
         ...state.serverData,
         items: state.serverData.items.map(item => {
-          if (item.id === channelId && (item.type === 'text' || item.type === 'voice')) { // ApiChannelItem
+          if (item.id === channelId && (item.type === 'text' || item.type === 'voice')) {
             return { ...item, ...updatedChannelData } as ApiChannelItem;
           }
-          if (item.type === 'category' && item.channels) { // ApiCategoryItem
-            return {
-              ...item,
-              channels: item.channels.map(ch =>
-                ch.id === channelId ? { ...ch, ...updatedChannelData } : ch
-              )
-            } as ApiCategoryItem;
+          if (item.type === 'category') {
+            const category = item as ApiCategoryItem;
+            const channelIndex = (category.channels || []).findIndex((ch: ApiChannel) => ch.id === channelId);
+            if (channelIndex !== -1 && category.channels) {
+              const updatedChannels = [...category.channels];
+              updatedChannels[channelIndex] = { ...updatedChannels[channelIndex], ...updatedChannelData };
+              return { ...category, channels: updatedChannels } as ApiCategoryItem;
+            }
           }
           return item;
         }),
-      }
+      },
+      isDirty: true
     };
   }),
 
-  deleteChannelStore: (channelId) => set(state => {
+  deleteChannelStore: (channelId: string) => set(state => {
     if (!state.serverData) return state;
     return {
       serverData: {
         ...state.serverData,
         items: state.serverData.items.filter(item => item.id !== channelId)
           .map(item => {
-            if (item.type === 'category' && item.channels) {
+            if (item.type === 'category') {
+              const category = item as ApiCategoryItem;
               return {
-                ...item,
-                channels: item.channels.filter(ch => ch.id !== channelId)
+                ...category,
+                channels: (category.channels || []).filter((ch: ApiChannel) => ch.id !== channelId)
               } as ApiCategoryItem;
             }
             return item;
           }),
-      }
+      },
+      isDirty: true
     };
   }),
 
-  addRoleToItemStore: (roleData, itemId, itemType) => {
+  addRoleToItemStore: (roleData: Omit<ServerApiRole, 'id' | 'position' | 'managed' | 'mentionable'>, itemId: string, itemType: 'category' | 'channel') => {
     let newRole: ServerApiRole | null = null;
     set(state => {
       if (!state.serverData) return state;
 
-      // Check if role with same name already exists globally, if so, use that one's ID
       let existingGlobalRole = state.serverData.roles.find(r => r.name === roleData.name);
 
       if (existingGlobalRole) {
@@ -350,22 +343,21 @@ export const useServerStructureStore = create<ServerStructureState>()((set, get)
         newRole = {
           ...roleData,
           id: generateId('role'),
-          position: state.serverData.roles.length, // Or manage position more carefully
-          managed: false, // Default for new roles
-          mentionable: false, // Default for new roles
+          position: state.serverData.roles.length,
+          managed: false,
+          mentionable: false,
         };
       }
 
       const updatedItems = state.serverData.items.map(item => {
         if (item.id === itemId && (item.type === itemType || (itemType === 'channel' && (item.type === 'text' || item.type === 'voice')))) {
           const currentPermissions = item.permissions || [];
-          // Avoid adding duplicate role permissions
           if (!currentPermissions.some(p => p.roleId === newRole!.id)) {
             const newPermission: ApiItemPermission = {
               roleId: newRole!.id,
               roleName: newRole!.name,
-              allow: newRole!.permissions, // Assuming newRole.permissions are 'allow'
-              overwrites: { allow: newRole!.permissions, deny: [] } // Default deny to empty
+              allow: newRole!.permissions, // Agregar esta propiedad
+              overwrites: { allow: newRole!.permissions, deny: [] }
             };
             return { ...item, permissions: [...currentPermissions, newPermission] };
           }
@@ -378,44 +370,41 @@ export const useServerStructureStore = create<ServerStructureState>()((set, get)
          updatedGlobalRoles = [...state.serverData.roles, newRole];
       }
 
-
       return {
         serverData: {
           ...state.serverData,
           items: updatedItems,
           roles: updatedGlobalRoles,
-        }
+        },
+        isDirty: true
       };
     });
-    return newRole; // Return the created/found role
+    return newRole;
   },
 
-  updateRoleInItemStore: (roleId, updatedRoleData, itemId, itemType) => set(state => {
+  updateRoleInItemStore: (roleId: string, updatedRoleData: Partial<ServerApiRole>, itemId: string, itemType: 'category' | 'channel') => set(state => {
     if (!state.serverData) return state;
 
-    // Update in global roles list
     const updatedGlobalRoles = state.serverData.roles.map(role =>
       role.id === roleId ? { ...role, ...updatedRoleData } : role
     );
 
     const updatedItems = state.serverData.items.map(item => {
       if (item.id === itemId && (item.type === itemType || (itemType === 'channel' && (item.type === 'text' || item.type === 'voice')))) {
-        return {
-          ...item,
-          permissions: (item.permissions || []).map(perm => {
-            if (perm.roleId === roleId) {
-              const updatedPerm: ApiItemPermission = {...perm};
-              if(updatedRoleData.name) updatedPerm.roleName = updatedRoleData.name;
-              if(updatedRoleData.permissions) { // Assuming updatedRoleData.permissions is string[] for allow
-                updatedPerm.allow = updatedRoleData.permissions;
-                updatedPerm.overwrites = { ...updatedPerm.overwrites, allow: updatedRoleData.permissions};
-              }
-              // Note: Deny permissions are not handled in this simplified update.
-              return updatedPerm;
+        const updatedPermissions = (item.permissions || []).map(perm => {
+          if (perm.roleId === roleId) {
+            const updatedPerm = { ...perm };
+            if (updatedRoleData.name) {
+              updatedPerm.roleName = updatedRoleData.name;
             }
-            return perm;
-          })
-        };
+            if (updatedRoleData.permissions) {
+              updatedPerm.overwrites.allow = updatedRoleData.permissions;
+            }
+            return updatedPerm;
+          }
+          return perm;
+        });
+        return { ...item, permissions: updatedPermissions };
       }
       return item;
     });
@@ -425,186 +414,147 @@ export const useServerStructureStore = create<ServerStructureState>()((set, get)
         ...state.serverData,
         items: updatedItems,
         roles: updatedGlobalRoles,
-      }
+      },
+      isDirty: true
     };
   }),
 
-  deleteRoleFromItemStore: (roleId, itemId, itemType) => set(state => {
+  deleteRoleFromItemStore: (roleId: string, itemId: string, itemType: 'category' | 'channel') => set(state => {
     if (!state.serverData) return state;
-    // Note: This only removes the role's permission from the item, not from the global roles list.
-    // Global role deletion would be a separate action if needed.
     return {
       serverData: {
         ...state.serverData,
         items: state.serverData.items.map(item => {
           if (item.id === itemId && (item.type === itemType || (itemType === 'channel' && (item.type === 'text' || item.type === 'voice')))) {
-            return {
-              ...item,
-              permissions: (item.permissions || []).filter(perm => perm.roleId !== roleId)
-            };
+            return { ...item, permissions: (item.permissions || []).filter(p => p.roleId !== roleId) };
           }
           return item;
         }),
-      }
+      },
+      isDirty: true
     };
   }),
 
   // --- DND Actions Implementation ---
-  moveCategoryStore: (draggedCategoryId, targetCategoryId) => set(state => {
+  moveCategoryStore: (draggedCategoryId: string, targetCategoryId: string | null) => set(state => {
     if (!state.serverData) return state;
     let items = [...state.serverData.items];
     const draggedItem = items.find(item => item.id === draggedCategoryId);
     if (!draggedItem || draggedItem.type !== 'category') return state;
 
-    items = items.filter(item => item.id !== draggedCategoryId);
+    const draggedIndex = items.findIndex(item => item.id === draggedCategoryId);
+    items.splice(draggedIndex, 1);
 
-    let targetIndex = -1;
     if (targetCategoryId) {
-      targetIndex = items.findIndex(item => item.id === targetCategoryId && item.type === 'category');
-    } else { // Dropping at the end
-      targetIndex = items.filter(i => i.type === 'category').length;
+      const targetIndex = items.findIndex(item => item.id === targetCategoryId);
+      items.splice(targetIndex, 0, draggedItem);
+    } else {
+      items.push(draggedItem);
     }
 
-    if (targetIndex === -1 && targetCategoryId) return state; // Target not found
-
-    // Insert draggedItem at targetIndex among categories
-    let categoryCount = 0;
-    let finalIndex = -1;
-    for(let i=0; i<items.length; i++){
-      if(items[i].type === 'category') {
-        if(categoryCount === targetIndex){
-          finalIndex = i;
-          break;
-        }
-        categoryCount++;
-      }
-    }
-    if(finalIndex === -1) finalIndex = items.length; // If target is end or not found in loop
-
-    items.splice(finalIndex, 0, draggedItem);
-
-    // Re-assign positions for all categories
-    let currentPosition = 0;
-    items = items.map(item => {
-      if (item.type === 'category') {
-        return { ...item, position: currentPosition++ } as ApiCategoryItem;
-      }
-      return item;
+    items.filter(item => item.type === 'category').forEach((item, index) => {
+      item.position = index;
     });
 
-    return { serverData: { ...state.serverData, items } };
+    return { serverData: { ...state.serverData, items }, isDirty: true };
   }),
 
-  moveChannelStore: (draggedChannelId, targetCategoryId, newPositionInCategory, oldCategoryId) => set(state => {
+  moveChannelStore: (draggedChannelId: string, targetCategoryId: string, newPositionInCategory?: number, oldCategoryId?: string) => set(state => {
     if (!state.serverData) return state;
     let items = [...state.serverData.items];
     const draggedChannel = items.find(item => item.id === draggedChannelId && (item.type === 'text' || item.type === 'voice')) as ApiChannelItem | undefined;
     if (!draggedChannel) return state;
 
-    // Remove from old category's list (if applicable, for nested structures)
-    if (oldCategoryId && oldCategoryId !== targetCategoryId) {
-      items = items.map(item => {
-        if (item.id === oldCategoryId && item.type === 'category') {
-          return { ...item, channels: (item.channels || []).filter(ch => ch.id !== draggedChannelId) } as ApiCategoryItem;
-        }
-        return item;
-      });
+    // Remove from old category's channel list and flat list
+    if (oldCategoryId) {
+      const oldCategoryIndex = items.findIndex(item => item.id === oldCategoryId);
+      if (oldCategoryIndex !== -1) {
+        const oldCategory = items[oldCategoryIndex] as ApiCategoryItem;
+        oldCategory.channels = (oldCategory.channels || []).filter(ch => ch.id !== draggedChannelId);
+      }
+    }
+    const draggedItemIndex = items.findIndex(item => item.id === draggedChannelId);
+    if (draggedItemIndex !== -1) {
+      items.splice(draggedItemIndex, 1);
     }
 
-    // Remove from flat list to re-insert later
-    items = items.filter(item => item.id !== draggedChannelId);
-
-    // Update parentId and add to new category's list (for nested structures)
+    // Add to new category's channel list and update parentId
     draggedChannel.parentId = targetCategoryId;
-
-    items = items.map(item => {
-      if (item.id === targetCategoryId && item.type === 'category') {
-        let channels = [...(item.channels || [])];
-        // Remove if it exists (e.g. if only position changed within same category)
-        channels = channels.filter(ch => ch.id !== draggedChannelId);
-
-        const targetApiChannel: ApiChannel = { // Construct the ApiChannel for category's list
-            id: draggedChannel.id,
-            name: draggedChannel.name,
-            type: draggedChannel.type,
-            position: newPositionInCategory !== undefined ? newPositionInCategory : channels.length,
-            parentId: targetCategoryId,
-            description: draggedChannel.description,
-            permissions: draggedChannel.permissions, // Ensure this is correct type
-        };
-
-        if (newPositionInCategory !== undefined) {
-          channels.splice(newPositionInCategory, 0, targetApiChannel);
-        } else {
-          channels.push(targetApiChannel);
-        }
-        // Re-position channels within this category
-        channels = channels.map((ch, index) => ({ ...ch, position: index }));
-        return { ...item, channels } as ApiCategoryItem;
+    const targetCategoryIndex = items.findIndex(item => item.id === targetCategoryId);
+    if (targetCategoryIndex !== -1) {
+      const targetCategory = items[targetCategoryIndex] as ApiCategoryItem;
+      const channelForCategory : ApiChannel = {
+          id: draggedChannel.id,
+          name: draggedChannel.name,
+          type: draggedChannel.type,
+          position: newPositionInCategory ?? (targetCategory.channels?.length || 0),
+          permissions: draggedChannel.permissions,
+          parentId: targetCategoryId,
+          description: draggedChannel.description
+      };
+      
+      if (newPositionInCategory !== undefined) {
+        targetCategory.channels?.splice(newPositionInCategory, 0, channelForCategory);
+      } else {
+        targetCategory.channels = [...(targetCategory.channels || []), channelForCategory];
       }
-      return item;
-    });
 
-    // Add/update in flat list with new parentId and re-calculate global position if necessary
-    // For now, position in DndView is category-relative, so global position might not be critical here.
-    // The flat list `items` should reflect the new parentId.
-    // We already filtered it out, now add it back.
-    const updatedDraggedChannelFlat : ApiChannelItem = {
-        ...draggedChannel,
-        parentId: targetCategoryId,
-        // position might need adjustment if it's global. For now, assume it's updated correctly for category-relative.
-    };
-    items.push(updatedDraggedChannelFlat);
+      // Re-position channels in target category
+      targetCategory.channels?.forEach((ch, index) => { ch.position = index; });
+    }
+    
+    // Add channel back to flat list with updated parentId
+    items.push(draggedChannel);
 
-
-    return { serverData: { ...state.serverData, items } };
+    // Re-position channels in old category if it exists
+    if (oldCategoryId && oldCategoryId !== targetCategoryId) {
+        const oldCategoryIndex = items.findIndex(item => item.id === oldCategoryId);
+        if(oldCategoryIndex !== -1){
+            const oldCategory = items[oldCategoryIndex] as ApiCategoryItem;
+            oldCategory.channels?.forEach((ch, index) => { ch.position = index; });
+        }
+    }
+    
+    return { serverData: { ...state.serverData, items }, isDirty: true };
   }),
 
-  moveRoleStore: (roleId, sourceItemId, sourceType, targetItemId, targetType, newPositionInItem) => set(state => {
+  moveRoleStore: (roleId, sourceItemId, _sourceType, targetItemId, _targetType, newPositionInItem) => set(state => {
     if (!state.serverData) return state;
     let items = [...state.serverData.items];
     let roleToMove: ApiItemPermission | undefined;
-
+  
     // Find and remove role from source item
-    items = items.map(item => {
-      if (item.id === sourceItemId && (item.type === sourceType || (sourceType === 'channel' && (item.type === 'text' || item.type === 'voice')))) {
-        roleToMove = (item.permissions || []).find(p => p.roleId === roleId);
-        if (roleToMove) {
-          return { ...item, permissions: (item.permissions || []).filter(p => p.roleId !== roleId) };
-        }
+    const sourceItemIndex = items.findIndex(item => item.id === sourceItemId);
+    if (sourceItemIndex !== -1) {
+      const sourceItem = items[sourceItemIndex];
+      const permIndex = (sourceItem.permissions || []).findIndex(p => p.roleId === roleId);
+      if (permIndex !== -1) {
+        roleToMove = sourceItem.permissions![permIndex];
+        sourceItem.permissions!.splice(permIndex, 1);
       }
-      return item;
-    });
-
-    if (!roleToMove) return state; // Role not found in source
-
-    // Add role to target item
-    items = items.map(item => {
-      if (item.id === targetItemId && (item.type === targetType || (targetType === 'channel' && (item.type === 'text' || item.type === 'voice')))) {
-        let permissions = [...(item.permissions || [])];
-        // Remove if it already exists (e.g. if only reordering)
-        permissions = permissions.filter(p => p.roleId !== roleId);
-
-        if (newPositionInItem !== undefined) {
-          permissions.splice(newPositionInItem, 0, roleToMove!);
-        } else {
-          permissions.push(roleToMove!);
-        }
-        return { ...item, permissions };
-      }
-      return item;
-    });
-
-    return { serverData: { ...state.serverData, items } };
-  }),
-
-  applyJsonToStore: (newServerData) => set(state => {
-    // Basic validation (can be more extensive)
-    if (!newServerData || !newServerData.items || !newServerData.roles) {
-      console.error("Invalid data structure for JSON import.");
-      return { ...state, error: "Invalid data structure for JSON import." };
     }
-    return { serverData: newServerData, error: null, isLoading: false };
+  
+    if (!roleToMove) return state;
+  
+    // Add role to target item
+    const targetItemIndex = items.findIndex(item => item.id === targetItemId);
+    if (targetItemIndex !== -1) {
+      const targetItem = items[targetItemIndex];
+      if (!targetItem.permissions) {
+        targetItem.permissions = [];
+      }
+      if (newPositionInItem !== undefined) {
+        targetItem.permissions.splice(newPositionInItem, 0, roleToMove);
+      } else {
+        targetItem.permissions.push(roleToMove);
+      }
+    }
+  
+    // ✅ AGREGAR EL RETURN DEL NUEVO ESTADO
+    return { 
+      serverData: { ...state.serverData, items }, 
+      isDirty: true 
+    };
   }),
 
 }));

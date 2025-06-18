@@ -1,4 +1,4 @@
-import React, { useState, useRef, ChangeEvent } from 'react';
+import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
 import { 
   Hash, Folder, Plus, Trash2, Download, Upload, Copy, 
   FileText, Edit2, Shield, Users, Grip
@@ -6,12 +6,17 @@ import {
 // import { Category, Role } from '../../types/discord'; // Category and Role types for DndView are still used by hooks
 import { useNotification } from '../../hooks/useNotification';
 import { useAuthStore } from '../../store/authStore'; // Added
-import { useServerStructureStore, useDndViewCategories, useServerRoles, useServerInfo } from '../../store/serverStructureStore'; // Added useServerInfo
+import { useServerStructureStore, useDndViewCategories, useServerInfo } from '../../store/serverStructureStore'; // Added useServerInfo
 import { useJsonOperations } from '../../hooks/useJsonOperations';
 import { useDragAndDrop } from '../../hooks/useDragAndDrop';
 import { useCrudOperations } from '../../hooks/useCrudOperations';
 import ActionButton from '../../components/common/ActionButton';
 import RoleModal from '../../components/common/RoleEditModal';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import SelectRoleModal from '../../components/common/SelectRoleModal';
+import ChannelEditModal from '../../components/common/ChannelEditModal';
+import CategoryEditModal from '../../components/common/CategoryEditModal';
+import { Role } from '../../types/discord';
 
 // Tipos para el modal de rol
 interface RoleForm {
@@ -37,15 +42,6 @@ interface RoleModalState {
   categoryId: string;
   channelId?: string;
 }
-
-import CategoryEditModal from '../../components/common/CategoryEditModal';
-import ChannelEditModal from '../../components/common/ChannelEditModal';
-import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
-import SelectRoleModal from '../../components/common/SelectRoleModal';
-
-// Types (Category and Role are used by hooks, keep them or import from types/discord if they match DndView's expected structure)
-import { Category, Role } from '../../types/discord';
-
 
 // Constantes
 const AVAILABLE_PERMISSIONS = [
@@ -142,13 +138,13 @@ const DragDropChannelsRoles: React.FC = () => {
     return Object.values(roleMap);
   };
 
-  const placeholderSetCategories = (dataUpdater: any) => { // Added placeholder
+    const placeholderSetCategories = (_dataUpdater: any) => { // Added placeholder
       console.warn('setCategories via DnD/CRUD/JSON is not implemented with Zustand yet. Data will not persist.');
       showNotification('Operation is temporarily disabled pending store integration. Data will not persist.');
   };
 
   // Asignar roles existentes (referencia) a categoría
-  const assignRolesToCategory = (categoryId: string, roles: Role[]) => {
+    const assignRolesToCategory = (_categoryId: string, _roles: Role[]) => {
     // setCategories(categories.map(cat => // Old local state
     // This will be a store action
     placeholderSetCategories(null);
@@ -156,7 +152,7 @@ const DragDropChannelsRoles: React.FC = () => {
   };
 
   // Asignar roles existentes (referencia) a canal
-  const assignRolesToChannel = (categoryId: string, channelId: string, roles: Role[]) => {
+    const assignRolesToChannel = (_categoryId: string, _channelId: string, _roles: Role[]) => {
     // setCategories(categories.map(cat => // Old local state
     // This will be a store action
     placeholderSetCategories(null);
@@ -212,14 +208,14 @@ const {
 
 // Mock crud operations for now
 const addCategory = () => { console.warn("addCategory not implemented with Zustand yet"); showNotification("Add category is temporarily disabled."); };
-const deleteCategory = (id: string) => { console.warn("deleteCategory not implemented with Zustand yet"); showNotification("Delete category is temporarily disabled."); };
-const addChannel = (catId: string) => { console.warn("addChannel not implemented with Zustand yet"); showNotification("Add channel is temporarily disabled."); };
-const deleteChannel = (catId: string, chId: string) => { console.warn("deleteChannel not implemented with Zustand yet"); showNotification("Delete channel is temporarily disabled."); };
-const deleteRole = (catId: string, roleId: string, chId?: string) => { console.warn("deleteRole not implemented with Zustand yet"); showNotification("Delete role is temporarily disabled."); };
-const copyCategory = (id: string) => { console.warn("copyCategory not implemented with Zustand yet"); showNotification("Copy category is temporarily disabled."); };
+const deleteCategory = (_id: string) => { console.warn("deleteCategory not implemented with Zustand yet"); showNotification("Delete category is temporarily disabled."); };
+const addChannel = (_catId: string) => { console.warn("addChannel not implemented with Zustand yet"); showNotification("Add channel is temporarily disabled."); };
+const deleteChannel = (_catId: string, _chId: string) => { console.warn("deleteChannel not implemented with Zustand yet"); showNotification("Delete channel is temporarily disabled."); };
+const deleteRole = (_catId: string, _roleId: string, _chId?: string) => { console.warn("deleteRole not implemented with Zustand yet"); showNotification("Delete role is temporarily disabled."); };
+const copyCategory = (_id: string) => { console.warn("copyCategory not implemented with Zustand yet"); showNotification("Copy category is temporarily disabled."); };
 const pasteCategory = () => { console.warn("pasteCategory not implemented with Zustand yet"); showNotification("Paste category is temporarily disabled."); };
-const copyChannel = (catId: string, chId: string) => { console.warn("copyChannel not implemented with Zustand yet"); showNotification("Copy channel is temporarily disabled."); };
-const pasteChannel = (catId: string) => { console.warn("pasteChannel not implemented with Zustand yet"); showNotification("Paste channel is temporarily disabled."); };
+const copyChannel = (_catId: string, _chId: string) => { console.warn("copyChannel not implemented with Zustand yet"); showNotification("Copy channel is temporarily disabled."); };
+const pasteChannel = (_catId: string) => { console.warn("pasteChannel not implemented with Zustand yet"); showNotification("Paste channel is temporarily disabled."); };
 
 
 // clipboard helpers
@@ -242,7 +238,7 @@ const isChannelInClipboard = clipboardRef.current?.type === 'channel';
     setDeleteTarget(null);
   };
 
-  const handleSaveCategoryEdit = (name: string) => {
+    const handleSaveCategoryEdit = (_name: string) => {
     if (editCategoryId) {
       // setCategories(categories.map(cat => cat.id === editCategoryId ? { ...cat, name } : cat)); // Old local state
       // This will be a store action
@@ -251,7 +247,7 @@ const isChannelInClipboard = clipboardRef.current?.type === 'channel';
     }
   };
 
-  const handleSaveChannelEdit = (name: string, type: 'text' | 'voice') => {
+    const handleSaveChannelEdit = (_name: string, _type: 'text' | 'voice') => {
     if (editChannel) {
       // setCategories(categories.map(cat => // Old local state
       // This will be a store action
@@ -382,13 +378,13 @@ const isChannelInClipboard = clipboardRef.current?.type === 'channel';
             setRoleForm={(form) => setRoleModal(prev => ({ ...prev, roleForm: typeof form === 'function' ? form(prev.roleForm) : form }))}
             availablePermissions={AVAILABLE_PERMISSIONS}
             roleColors={ROLE_COLORS}
-            onSave={async (roleData) => {
+            onSave={async (_roleData) => {
               // Create or update the role
               // const newRole: Role = { // This logic will move to a store action
               //   id: roleModal.editingRole?.id || `role-${Date.now()}`,
-              //   name: roleData.name,
-              //   permissions: roleData.permissions,
-              //   color: roleData.color
+              //   name: _roleData.name,
+              //   permissions: _roleData.permissions,
+              //   color: _roleData.color
               // };
 
               // setCategories(prev => prev.map(cat => { // Old local state
@@ -472,7 +468,7 @@ const isChannelInClipboard = clipboardRef.current?.type === 'channel';
             setRoleForm={() => { /* No-op */ }}
             availablePermissions={AVAILABLE_PERMISSIONS}
             roleColors={ROLE_COLORS}
-            onSave={async (roleData) => { // This logic will move to a store action
+            onSave={async (_roleData) => { // This logic will move to a store action
               // Actualizar solo el rol editado
               // setCategories(prev => prev.map(cat => { // Old local state
               // This will be a store action
@@ -832,13 +828,13 @@ const isChannelInClipboard = clipboardRef.current?.type === 'channel';
           }
           availablePermissions={AVAILABLE_PERMISSIONS}
           roleColors={ROLE_COLORS}
-          onSave={async (roleData) => {
+          onSave={async (_roleData) => {
             // Create or update the role
-            const newRole: Role = {
+            const _newRole: Role = {
               id: roleModal.editingRole?.id || `role-${Date.now()}`,
-              name: roleData.name,
-              permissions: roleData.permissions,
-              color: roleData.color
+              name: _roleData.name,
+              permissions: _roleData.permissions,
+              color: _roleData.color
             };
             
             // Update categories with the new/updated role

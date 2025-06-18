@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { DiscordRole, DiscordChannel, DiscordCategory } from '../types/discord';
+import { DiscordRole, DiscordChannel, DiscordCategory, ServerStructureData } from '../types/discord';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -99,14 +99,28 @@ export const categoriesApi = {
    */
   getCategoriesWithChannels: (guildId: string) =>
     api.get(`/discord-bot/${guildId}/categories/with-channels`),
+
+  /**
+   * Updates the entire server structure for a specific guild.
+   * @param guildId The ID of the guild.
+   * @param serverData The complete server structure data to be saved.
+   * @returns Promise with the result of the operation.
+   */
+  updateServerStructure: (guildId: string, serverData: ServerStructureData) =>
+    api.put(`/discord-bot/${guildId}/categories/with-channels`, serverData),
+
   getCategories: (guildId: string) => 
     api.get<DiscordCategory[]>(`/discord-bot/${guildId}/categories`),
+
   getCategory: (guildId: string, id: string) => 
     api.get<DiscordCategory>(`/discord-bot/${guildId}/categories/${id}`),
+
   createCategory: (guildId: string, data: Partial<DiscordCategory>) => 
     api.post<DiscordCategory>(`/discord-bot/${guildId}/categories`, data),
+
   updateCategory: (guildId: string, id: string, data: Partial<DiscordCategory>) => 
     api.put<DiscordCategory>(`/discord-bot/${guildId}/categories/${id}`, data),
+
   deleteCategory: (guildId: string, id: string) => 
     api.delete(`/discord-bot/${guildId}/categories/${id}`),
 };
