@@ -353,13 +353,17 @@ export const useServerStructureStore = create<ServerStructureState>()((set, get)
         if (item.id === itemId && (item.type === itemType || (itemType === 'channel' && (item.type === 'text' || item.type === 'voice')))) {
           const currentPermissions = item.permissions || [];
           if (!currentPermissions.some(p => p.roleId === newRole!.id)) {
-            const newPermission: ApiItemPermission = {
+            // Ensure newPermissionEntry strictly follows the nested overwrites structure
+            const newPermissionEntry: ApiItemPermission = {
               roleId: newRole!.id,
-              roleName: newRole!.name,
-              allow: newRole!.permissions, // Agregar esta propiedad
-              overwrites: { allow: newRole!.permissions, deny: [] }
+              roleName: newRole!.name, // roleName is part of ApiItemPermission
+              overwrites: {
+                allow: newRole!.permissions, // newRole.permissions is string[] (permission names)
+                deny: [] // Default deny to empty array
+              }
+              // Do not include a top-level 'allow' here if ApiItemPermission is strictly for the array
             };
-            return { ...item, permissions: [...currentPermissions, newPermission] };
+            return { ...item, permissions: [...currentPermissions, newPermissionEntry] };
           }
         }
         return item;

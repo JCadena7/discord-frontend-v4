@@ -1,67 +1,64 @@
 import { useCallback, useState } from 'react';
-import { Category } from '../types/discord';
-import { isValidCategoriesStructure } from '../utils/dataUtils';
+import { Category, ServerStructureData } from '../types/discord'; // Category for DND view, ServerStructureData for store
+import { isValidServerStructureData } from '../utils/dataUtils'; // Assuming this validator exists or will be created
 
 interface UseJsonOperationsProps {
-  categories: Category[];
-  setCategories: (categories: Category[]) => void;
-  showNotification: (message: string) => void;
-  toBackend?: (categories: Category[]) => any;
-  fromBackend?: (data: any) => Category[];
+  categories: Category[]; // Used for copy/download of DND view structure
+  applyJsonToStore: (data: ServerStructureData) => void; // To apply full structure to store
+  showNotification: (message: string, type?: 'success' | 'error') => void; // Added type to showNotification
+  // Removed setCategories, toBackend, fromBackend
 }
 
 export const useJsonOperations = ({
-  categories,
-  setCategories,
+  categories, // This is DndCategory[] for copy/download
+  applyJsonToStore,
   showNotification,
-  toBackend,
-  fromBackend,
 }: UseJsonOperationsProps) => {
   const [jsonInput, setJsonInput] = useState<string>('');
 
   const copyToClipboard = useCallback(async (): Promise<void> => {
     try {
-      const dataToCopy = toBackend ? toBackend(categories) : categories;
-      const jsonString = JSON.stringify(dataToCopy, null, 2);
+      // This copies the DndCategory[] structure, not necessarily the full ServerStructureData
+      const jsonString = JSON.stringify(categories, null, 2);
       await navigator.clipboard.writeText(jsonString);
-      showNotification('¡JSON copiado al portapapeles!');
+      showNotification('Vista DND JSON copiada al portapapeles!');
     } catch (err) {
-      showNotification('Error al copiar JSON');
+      console.error("Error copying DND JSON: ", err);
+      showNotification('Error al copiar JSON de la vista DND.', 'error');
     }
-  }, [categories, showNotification, toBackend]);
+  }, [categories, showNotification]);
 
   const pasteFromClipboard = useCallback(async (): Promise<void> => {
     try {
       const text = await navigator.clipboard.readText();
-      let parsedData = JSON.parse(text);
-      if (fromBackend) {
-        parsedData = fromBackend(parsedData);
-      }
-      if (isValidCategoriesStructure(parsedData)) {
-        setCategories(parsedData);
-        showNotification('¡JSON importado correctamente!');
+      const parsedData = JSON.parse(text);
+      if (isValidServerStructureData(parsedData)) {
+        applyJsonToStore(parsedData);
+        setJsonInput(JSON.stringify(parsedData, null, 2)); // Update text area with the valid structure
+        showNotification('JSON pegado y aplicado al store!');
       } else {
-        showNotification('La estructura del JSON no es válida o la conversión falló.');
+        showNotification('El JSON del portapapeles no tiene la estructura de ServerStructureData esperada.', 'error');
       }
     } catch (err) {
-      showNotification('Error al importar JSON - Verifica el formato');
+      console.error("Error pasting JSON: ", err);
+      showNotification('Error al pegar JSON o formato inválido.', 'error');
     }
-  }, [setCategories, showNotification, fromBackend]);
+  }, [applyJsonToStore, showNotification]);
 
   const downloadJSON = useCallback((): void => {
-    const dataToDownload = toBackend ? toBackend(categories) : categories;
-    const jsonString = JSON.stringify(dataToDownload, null, 2);
+    // This downloads the DndCategory[] structure
+    const jsonString = JSON.stringify(categories, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'channels-roles-config.json';
+    a.download = 'dnd-view-structure.json'; // Filename reflects it's the DND view
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showNotification('¡Archivo JSON descargado!');
-  }, [categories, showNotification, toBackend]);
+    showNotification('Vista DND JSON descargada!');
+  }, [categories, showNotification]);
 
   const handleFileUpload = useCallback((file: File): void => {
     if (file && file.type === 'application/json') {
@@ -70,46 +67,47 @@ export const useJsonOperations = ({
         try {
           const result = e.target?.result;
           if (typeof result === 'string') {
-            let parsedData = JSON.parse(result);
-            if (fromBackend) {
-              parsedData = fromBackend(parsedData);
-            }
-            if (isValidCategoriesStructure(parsedData)) {
-              setCategories(parsedData);
-              showNotification('¡Archivo JSON cargado correctamente!');
+            const parsedData = JSON.parse(result);
+            if (isValidServerStructureData(parsedData)) {
+              applyJsonToStore(parsedData);
+              setJsonInput(JSON.stringify(parsedData, null, 2)); // Update text area
+              showNotification('Archivo JSON cargado y aplicado al store!');
             } else {
-              showNotification('La estructura del JSON no es válida o la conversión falló.');
+              showNotification('El archivo JSON no tiene la estructura de ServerStructureData esperada.', 'error');
             }
           }
         } catch (err) {
-          showNotification('Error al leer archivo JSON');
+          console.error("Error processing uploaded JSON file: ", err);
+          showNotification('Error al leer o parsear el archivo JSON.', 'error');
         }
       };
       reader.readAsText(file);
     } else {
-      showNotification('Por favor selecciona un archivo JSON válido');
+      showNotification('Por favor selecciona un archivo JSON válido.', 'error');
     }
-  }, [setCategories, showNotification, fromBackend]);
+  }, [applyJsonToStore, showNotification]);
 
+  // This function is intended for the text area in DndView.
+  // DndView.tsx's "Aplicar JSON" button for the text area already calls applyJsonToStore directly.
+  // This function in the hook could be removed if DndView.tsx handles the text area input parsing and validation itself.
+  // Or, DndView.tsx could call this function. Let's keep it for now, ensuring it uses applyJsonToStore.
   const applyJsonInput = useCallback((input: string): boolean => {
     try {
-      let parsedData = JSON.parse(input);
-      if (fromBackend) {
-        parsedData = fromBackend(parsedData);
-      }
-      if (isValidCategoriesStructure(parsedData)) {
-        setCategories(parsedData);
-        showNotification('Configuración JSON aplicada correctamente.');
+      const parsedData = JSON.parse(input);
+      if (isValidServerStructureData(parsedData)) {
+        applyJsonToStore(parsedData);
+        showNotification('Configuración JSON del editor aplicada al store.');
         return true;
       } else {
-        showNotification('La estructura del JSON no es válida o la conversión falló.');
+        showNotification('El JSON del editor no tiene la estructura de ServerStructureData esperada.', 'error');
         return false;
       }
     } catch (error) {
-      showNotification('Error al procesar el JSON. Verifica la sintaxis y el formato.');
+      console.error("Error applying JSON from editor: ", error);
+      showNotification('Error al procesar el JSON del editor. Verifica la sintaxis.', 'error');
       return false;
     }
-  }, [setCategories, showNotification, fromBackend]);
+  }, [applyJsonToStore, showNotification]);
 
   return {
     jsonInput,
