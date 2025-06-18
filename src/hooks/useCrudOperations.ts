@@ -67,7 +67,7 @@ export const useCrudOperations = ({ categories, addCategoryStore, addChannelStor
         name: clonedCategoryData.name,
         type: 'category',
         parentId: null,
-        description: clonedCategoryData.description || null
+        description: clonedCategoryData.description || undefined
       });
       clipboardRef.current = { type: null, data: null };
     }
@@ -89,7 +89,7 @@ export const useCrudOperations = ({ categories, addCategoryStore, addChannelStor
         name: clonedChannelData.name,
         type: clonedChannelData.type,
         parentId: targetCategoryId,
-        description: clonedChannelData.description || null
+        description: clonedChannelData.description || undefined
       });
       clipboardRef.current = { type: null, data: null };
     }

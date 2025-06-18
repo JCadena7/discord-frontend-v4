@@ -20,7 +20,7 @@ import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import SelectRoleModal from '../../components/common/SelectRoleModal';
 import ChannelEditModal from '../../components/common/ChannelEditModal';
 import CategoryEditModal from '../../components/common/CategoryEditModal';
-import { Role } from '../../types/discord';
+import { Role, ApiCategoryItem, ApiChannelItem } from '../../types/discord';
 
 // Tipos para el modal de rol
 interface RoleForm {
@@ -186,25 +186,50 @@ const DragDropChannelsRoles: React.FC = () => {
     return Object.values(roleMap);
   };
 
-    const placeholderSetCategories = (_dataUpdater: any) => { // Added placeholder
-      console.warn('setCategories via DnD/CRUD/JSON is not implemented with Zustand yet. Data will not persist.');
-      showNotification('Operation is temporarily disabled pending store integration. Data will not persist.');
+  const assignRolesToCategory = (categoryId: string, roles: Role[]) => {
+    const serverData = useServerStructureStore.getState().serverData;
+    if (!serverData) return;
+
+    const categoryToUpdate = serverData.items.find(item => item.id === categoryId && item.type === 'category') as ApiCategoryItem | undefined;
+    if (!categoryToUpdate) return;
+
+    const newPermissions = roles.map(role => ({
+      roleId: role.id,
+      roleName: role.name,
+      overwrites: { allow: [], deny: [] } // Default overwrites, user can edit later
+    }));
+
+    const existingPermissionIds = new Set((categoryToUpdate.permissions || []).map(p => p.roleId));
+    const filteredNewPermissions = newPermissions.filter(p => !existingPermissionIds.has(p.roleId));
+
+    if (filteredNewPermissions.length > 0) {
+      updateCategoryStore(categoryId, {
+        permissions: [...(categoryToUpdate.permissions || []), ...filteredNewPermissions]
+      });
+    }
   };
 
-  // Asignar roles existentes (referencia) a categoría
-    const assignRolesToCategory = (_categoryId: string, _roles: Role[]) => {
-    // setCategories(categories.map(cat => // Old local state
-    // This will be a store action
-    placeholderSetCategories(null);
-    // ));
-  };
+  const assignRolesToChannel = (categoryId: string, channelId: string, roles: Role[]) => {
+    const serverData = useServerStructureStore.getState().serverData;
+    if (!serverData) return;
 
-  // Asignar roles existentes (referencia) a canal
-    const assignRolesToChannel = (_categoryId: string, _channelId: string, _roles: Role[]) => {
-    // setCategories(categories.map(cat => // Old local state
-    // This will be a store action
-    placeholderSetCategories(null);
-    // ));
+    const channelToUpdate = serverData.items.find(item => item.id === channelId && (item.type === 'text' || item.type === 'voice')) as ApiChannelItem | undefined;
+    if (!channelToUpdate) return;
+
+    const newPermissions = roles.map(role => ({
+      roleId: role.id,
+      roleName: role.name,
+      overwrites: { allow: [], deny: [] }
+    }));
+
+    const existingPermissionIds = new Set((channelToUpdate.permissions || []).map(p => p.roleId));
+    const filteredNewPermissions = newPermissions.filter(p => !existingPermissionIds.has(p.roleId));
+
+    if (filteredNewPermissions.length > 0) {
+      updateChannelStore(channelId, {
+        permissions: [...(channelToUpdate.permissions || []), ...filteredNewPermissions]
+      });
+    }
   };
 
   // Estado para modales
@@ -228,7 +253,7 @@ const DragDropChannelsRoles: React.FC = () => {
     downloadJSON,
     handleFileUpload,
     // applyJsonInput // This is now handled directly by calling applyJsonToStore
-  } = useJsonOperations({ categories: categoriesData, setCategories: placeholderSetCategories, showNotification }); // Use categoriesData
+  } = useJsonOperations({ categories: categoriesData, setCategories: assignRolesToCategory, showNotification }); // Use categoriesData
   
   // Define the onPerformDrop callback for useDragAndDrop
   const onPerformDrop = (details: import('../../hooks/useDragAndDrop').DropDetails) => {
@@ -429,7 +454,7 @@ const isChannelInClipboard = () => clipboardRef.current?.type === 'channel'; // 
               Guardar Cambios
             </ActionButton>
             
-            <button onClick={() => addCategoryStore({ name: 'Nueva Categoría', type: 'category', parentId: null, description: null })} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors">
+            <button onClick={() => addCategoryStore({ name: 'Nueva Categoría', type: 'category', parentId: null, description: undefined })} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors">
               <Plus size={16} />
               Nueva Categoría
             </button>
@@ -691,7 +716,7 @@ const isChannelInClipboard = () => clipboardRef.current?.type === 'channel'; // 
             title="Pegar categoría"
             disabled={!isCategoryInClipboard()}
           />
-          <button onClick={() => addChannelStore(category.id, { name: 'Nuevo Canal', type: 'text', parentId: category.id, description: null })} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors">
+          <button onClick={() => addChannelStore(category.id, { name: 'Nuevo Canal', type: 'text', parentId: category.id, description: undefined })} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors">
             <Plus size={14} />
             Canal
           </button>
@@ -984,7 +1009,7 @@ const isChannelInClipboard = () => clipboardRef.current?.type === 'channel'; // 
             // Update categories with the new/updated role
             // setCategories(prev => prev.map(cat => { // Old local state
             // This will be a store action
-            placeholderSetCategories(null);
+            assignRolesToCategory(roleModal.categoryId, [_newRole]);
             // }));
             
             // Close the modal
