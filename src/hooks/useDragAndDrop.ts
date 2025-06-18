@@ -1,30 +1,48 @@
-import { useState, useRef, useCallback, DragEvent } from 'react';
-import { Category, Channel, Role } from '../types/discord';
-import { moveChannelBetweenCategories, reorderCategories } from '../utils/dataUtils';
+import { useState, useCallback, DragEvent, useRef } from 'react';
+import { Category, Channel, Role } from '../types/discord'; // These are DndView types
 
-type DraggedType = 'channel' | 'category' | 'role' | null;
-type DraggedItem = Channel | Category | Role | null;
+export type DraggableItemData = Category | Channel | Role; // Renamed from DraggableItem to avoid conflict with the state variable
+export type DraggableType = 'category' | 'channel' | 'role';
 
+export interface DraggedSourceContext { // Added export
+  categoryId: string;
+  channelId?: string;
+}
 interface UseDragAndDropProps {
-  categories: Category[];
-  setCategories: (categories: Category[]) => void;
+  categories: Category[]; // DndView categories
+  // setCategories is no longer directly used by this hook to commit state changes.
+  // DndView.tsx will handle the actual state update via store actions in its onDrop handlers.
+  setCategories: (categoriesUpdater: Category[] | ((prevCategories: Category[]) => Category[])) => void;
 }
 
 export const useDragAndDrop = ({ categories, setCategories }: UseDragAndDropProps) => {
-  const [draggedItem, setDraggedItem] = useState<DraggedItem>(null);
-  const [draggedType, setDraggedType] = useState<DraggedType>(null);
-  const [draggedSource, setDraggedSource] = useState<{ categoryId: string; channelId?: string } | null>(null);
-  const dragCounter = useRef<number>(0);
+  const [draggedItem, setDraggedItem] = useState<DraggableItemData | null>(null);
+  const [draggedType, setDraggedType] = useState<DraggableType | null>(null);
+  const [draggedSource, setDraggedSource] = useState<DraggedSourceContext | null>(null);
+  const dragCounter = useRef<number>(0); // To handle nested drag enter/leave events
 
-  const handleDragStart = useCallback((e: DragEvent<HTMLDivElement>, item: DraggedItem, type: DraggedType, source?: { categoryId: string; channelId?: string }): void => {
+  const handleDragStart = useCallback((
+    e: DragEvent<HTMLDivElement>,
+    item: DraggableItemData,
+    type: DraggableType,
+    sourceContext?: DraggedSourceContext // e.g., { categoryId: 'cat1', channelId: 'ch1'} for a role in a channel
+  ): void => {
     setDraggedItem(item);
     setDraggedType(type);
-    setDraggedSource(source || null);
+    setDraggedSource(sourceContext || null); // Store where the item came from
+    // Optional: Add a class to the dragged element itself
+    e.currentTarget.classList.add('dragging');
+    // Set data for inter-component communication (though primarily using state here)
+    e.dataTransfer.setData('application/json', JSON.stringify({
+      item: { id: item.id, name: (item as any).name }, // Pass only necessary item info
+      type,
+      sourceContext
+    }));
     e.dataTransfer.effectAllowed = 'move';
   }, []);
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>): void => {
-    e.preventDefault();
+    e.preventDefault(); // Necessary to allow dropping
     e.dataTransfer.dropEffect = 'move';
   }, []);
 
@@ -35,98 +53,37 @@ export const useDragAndDrop = ({ categories, setCategories }: UseDragAndDropProp
   }, []);
 
   const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>): void => {
+    e.preventDefault();
     dragCounter.current--;
     if (dragCounter.current === 0) {
       e.currentTarget.classList.remove('drag-over');
     }
   }, []);
 
-  const handleChannelDrop = useCallback((targetCategoryId: string): Category[] => {
-    if (!draggedItem) return categories;
-    return moveChannelBetweenCategories(categories, (draggedItem as Channel).id, targetCategoryId);
-  }, [categories, draggedItem]);
-
-  const handleCategoryDrop = useCallback((targetCategoryId: string): Category[] => {
-    if (!draggedItem) return categories;
-    return reorderCategories(categories, (draggedItem as Category).id, targetCategoryId);
-  }, [categories, draggedItem]);
-
-  const handleRoleDrop = useCallback((targetCategoryId: string, targetChannelId?: string): Category[] => {
-    if (!draggedItem || !draggedSource) return categories;
-
-    const newCategories = [...categories];
-    const sourceCategory = newCategories.find(cat => cat.id === draggedSource.categoryId);
-    const targetCategory = newCategories.find(cat => cat.id === targetCategoryId);
+  const handleDrop = useCallback((): void => {
+    // This function's body is now significantly reduced.
+    // The actual data manipulation logic (moving items in the store)
+    // will be triggered by `handleActualDrop` in DndView.tsx, which calls Zustand store actions.
+    // This `handleDrop` in the hook is now primarily responsible for resetting local drag state.
+    // The `dragCounter.current = 0;` and `e.currentTarget.classList.remove('drag-over');`
+    // would typically be here, but since `e` (event) is not passed, DndView needs to handle this UI aspect.
+    // DndView's onDrop handlers should call these for UI cleanup.
     
-    if (!sourceCategory || !targetCategory) return categories;
-
-    let sourceRoles: Role[];
-    let targetRoles: Role[];
-    
-    if (draggedSource.channelId) {
-      // Desde canal
-      const sourceChannel = sourceCategory.channels.find(ch => ch.id === draggedSource.channelId);
-      sourceRoles = sourceChannel?.roles || [];
-    } else {
-      // Desde categoría
-      sourceRoles = sourceCategory.roles;
-    }
-    
-    if (targetChannelId) {
-      // Hacia canal
-      const targetChannel = targetCategory.channels.find(ch => ch.id === targetChannelId);
-      targetRoles = targetChannel?.roles || [];
-    } else {
-      // Hacia categoría
-      targetRoles = targetCategory.roles;
-    }
-    
-    const roleIndex = sourceRoles.findIndex(role => role.id === (draggedItem as Role).id);
-    if (roleIndex !== -1) {
-      const [removedRole] = sourceRoles.splice(roleIndex, 1);
-      targetRoles.push(removedRole);
-    }
-
-    return newCategories;
-  }, [categories, draggedItem, draggedSource]);
-
-  const handleDrop = useCallback((e: DragEvent<HTMLDivElement>, targetCategoryId: string, targetChannelId?: string): void => {
-    e.preventDefault();
-    dragCounter.current = 0;
-    e.currentTarget.classList.remove('drag-over');
-
-    if (!draggedItem || !draggedType) return;
-
-    let newCategories: Category[];
-
-    switch (draggedType) {
-      case 'channel':
-        newCategories = handleChannelDrop(targetCategoryId);
-        break;
-      case 'category':
-        newCategories = handleCategoryDrop(targetCategoryId);
-        break;
-      case 'role':
-        newCategories = handleRoleDrop(targetCategoryId, targetChannelId);
-        break;
-      default:
-        return;
-    }
-
-    setCategories(newCategories);
     setDraggedItem(null);
     setDraggedType(null);
     setDraggedSource(null);
-  }, [draggedItem, draggedType, handleChannelDrop, handleCategoryDrop, handleRoleDrop, setCategories]);
+    // Note: setCategories is NOT called here anymore for actual data updates.
+  }, []); // Dependencies removed as setCategories is no longer used for state update here.
 
   return {
     draggedItem,
     draggedType,
-    draggedSource,
+    draggedSource, // Expose this so DndView can use it in handleActualDrop
     handleDragStart,
     handleDragOver,
     handleDragEnter,
     handleDragLeave,
-    handleDrop
+    handleDrop, // This is the modified, minimal handleDrop
+    // dragCounter can be exposed if DndView needs to manage it, but typically internal.
   };
 };
