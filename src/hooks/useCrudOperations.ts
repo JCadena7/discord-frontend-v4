@@ -1,14 +1,10 @@
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { Category, Channel, Role } from '../types/discord';
-import { updateRoleInCollection, removeRoleFromCollection, removeChannelFromCategory, addChannelToCategory } from '../utils/dataUtils';
+// Removed: import { updateRoleInCollection, removeRoleFromCollection, removeChannelFromCategory, addChannelToCategory } from '../utils/dataUtils';
 
-const ROLE_COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-  '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
-  '#F8C471', '#82E0AA', '#F1948A', '#85C1E9', '#D7DBDD'
-];
+// Removed: const ROLE_COLORS = [ ... ];
 
-import { ServerStructureData, ApiCategoryItem, ApiChannel } from '../types/discord'; // For store action payloads
+import { ApiCategoryItem, ApiChannel } from '../types/discord'; // For store action payloads, removed ServerStructureData
 
 interface UseCrudOperationsProps {
   categories: Category[]; // Still needed for copy operations and getEffectiveRoles
@@ -17,17 +13,8 @@ interface UseCrudOperationsProps {
   addChannelStore: (categoryId: string, newChannelData: Omit<ApiChannel, 'id' | 'position' | 'permissions'>) => void;
 }
 
-interface RoleForm {
-  name: string;
-  permissions: string[];
-  color: string;
-}
-
-interface EditingRole {
-  id: string;
-  categoryId: string;
-  channelId?: string;
-}
+// Removed: interface RoleForm { ... }
+// Removed: interface EditingRole { ... }
 
 // Utilidad para clonar un canal con nuevos IDs para canal y roles
 function cloneChannel(channel: Channel): Channel {
@@ -55,27 +42,13 @@ function cloneCategory(category: Category): Category {
 }
 
 export const useCrudOperations = ({ categories, addCategoryStore, addChannelStore }: UseCrudOperationsProps) => {
-  // const [editingRole, setEditingRole] = useState<EditingRole | null>(null); // Unused
-  // const [roleForm, setRoleForm] = useState<RoleForm>({ // Unused
-  // name: '',
-  // permissions: [],
-  // color: ROLE_COLORS[0]
-  // });
+  // Removed: const [editingRole, setEditingRole] = useState<EditingRole | null>(null);
+  // Removed: const [roleForm, setRoleForm] = useState<RoleForm>({ ... });
 
   // Portapapeles local para copiar/pegar
   const clipboardRef = useRef<{ type: 'category' | 'channel' | null, data: Category | Channel | null }>({ type: null, data: null });
 
-  // Deprecated CRUD operations - Handled by DndView.tsx directly with store actions
-  // const addCategory = useCallback((): void => { ... });
-  // const deleteCategory = useCallback((categoryId: string): void => { ... });
-  // const addChannel = useCallback((categoryId: string): void => { ... });
-  // const deleteChannel = useCallback((categoryId: string, channelId: string): void => { ... });
-  // const addRole = useCallback((categoryId: string, channelId?: string): void => { ... });
-  // const editRole = useCallback((role: Role, categoryId: string, channelId?: string): void => { ... });
-  // const saveRole = useCallback((): void => { ... });
-  // const deleteRole = useCallback((categoryId: string, roleId: string, channelId?: string): void => { ... });
-  // const togglePermission = useCallback((permission: string): void => { ... });
-  // const cancelRoleEdit = useCallback((): void => { ... });
+  // Removed all deprecated CRUD function comments
 
   // --- COPIAR Y PEGAR ---
   const copyCategory = useCallback((categoryId: string) => {
@@ -90,7 +63,12 @@ export const useCrudOperations = ({ categories, addCategoryStore, addChannelStor
       const clonedCategoryData = cloneCategory(clipboardRef.current.data as Category);
       // Note: This simple paste will not include channels/roles from the copied category.
       // A more complex "deep paste" would require a different store action or enhancement.
-      addCategoryStore({ name: clonedCategoryData.name, type: 'category' });
+      addCategoryStore({
+        name: clonedCategoryData.name,
+        type: 'category',
+        parentId: null,
+        description: clonedCategoryData.description || null
+      });
       clipboardRef.current = { type: null, data: null };
     }
   }, [addCategoryStore]);
@@ -107,7 +85,12 @@ export const useCrudOperations = ({ categories, addCategoryStore, addChannelStor
     if (clipboardRef.current.type === 'channel' && clipboardRef.current.data) {
       const clonedChannelData = cloneChannel(clipboardRef.current.data as Channel);
       // Note: This simple paste will not include roles from the copied channel.
-      addChannelStore(targetCategoryId, { name: clonedChannelData.name, type: clonedChannelData.type });
+      addChannelStore(targetCategoryId, {
+        name: clonedChannelData.name,
+        type: clonedChannelData.type,
+        parentId: targetCategoryId,
+        description: clonedChannelData.description || null
+      });
       clipboardRef.current = { type: null, data: null };
     }
   }, [addChannelStore]);

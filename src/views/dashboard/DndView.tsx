@@ -302,18 +302,9 @@ const DragDropChannelsRoles: React.FC = () => {
     addCategoryStore, // Pass store action
     addChannelStore   // Pass store action
   });
-const {
-    // addCategory, // Was store action, now this mapping is not needed as DndView calls addCategoryStore directly
-    // deleteCategory, // Was store action, now this mapping is not needed
-    // addChannel, // Will be store action
-    // deleteChannel, // Will be store action
-    // deleteRole, // Will be store action - Now directly using deleteRoleFromItemStore
-    // copyCategory, // Will be store action (or local if clipboard is purely local) - Stays with useCrudOperations for now
-    // pasteCategory, // Will be store action - Stays with useCrudOperations for now, but will use addCategoryStore
-    // copyChannel, // Will be store action (or local) - Stays with useCrudOperations for now
-    // pasteChannel, // Will be store action - Stays with useCrudOperations for now, but will use addChannelStore
-    getEffectiveRolesForChannel // This can remain as it reads data
-  } = crudOps;
+// const { // This initial destructuring of getEffectiveRolesForChannel is redundant if getEffectiveRolesFromCrud is used.
+    // getEffectiveRolesForChannel
+// } = crudOps; // Removing this as getEffectiveRolesFromCrud is used later.
 
 // Remove mock crud operations that are now replaced by store actions
 // const addCategory = () => { console.warn("addCategory not implemented with Zustand yet"); showNotification("Add category is temporarily disabled."); };
@@ -434,12 +425,11 @@ const isChannelInClipboard = () => clipboardRef.current?.type === 'channel'; // 
               }}
               disabled={!isDirty || serverStructureLoading}
               variant="primary" // Assuming you have a 'primary' variant for save
-              isLoading={serverStructureLoading} // Show loading state on button
             >
               Guardar Cambios
             </ActionButton>
             
-            <button onClick={() => addCategoryStore({ name: 'Nueva Categoría', type: 'category' })} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors">
+            <button onClick={() => addCategoryStore({ name: 'Nueva Categoría', type: 'category', parentId: null, description: null })} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors">
               <Plus size={16} />
               Nueva Categoría
             </button>
@@ -701,7 +691,7 @@ const isChannelInClipboard = () => clipboardRef.current?.type === 'channel'; // 
             title="Pegar categoría"
             disabled={!isCategoryInClipboard()}
           />
-          <button onClick={() => addChannelStore(category.id, { name: 'Nuevo Canal', type: 'text' })} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors">
+          <button onClick={() => addChannelStore(category.id, { name: 'Nuevo Canal', type: 'text', parentId: category.id, description: null })} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors">
             <Plus size={14} />
             Canal
           </button>
