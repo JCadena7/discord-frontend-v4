@@ -8,9 +8,13 @@ const ROLE_COLORS = [
   '#F8C471', '#82E0AA', '#F1948A', '#85C1E9', '#D7DBDD'
 ];
 
+import { ServerStructureData, ApiCategoryItem, ApiChannel } from '../types/discord'; // For store action payloads
+
 interface UseCrudOperationsProps {
-  categories: Category[];
-  setCategories: (categories: Category[]) => void;
+  categories: Category[]; // Still needed for copy operations and getEffectiveRoles
+  // setCategories: (categories: Category[]) => void; // No longer used for paste
+  addCategoryStore: (newCategoryData: Omit<ApiCategoryItem, 'id' | 'position' | 'channels' | 'permissions'>) => void;
+  addChannelStore: (categoryId: string, newChannelData: Omit<ApiChannel, 'id' | 'position' | 'permissions'>) => void;
 }
 
 interface RoleForm {
@@ -50,178 +54,28 @@ function cloneCategory(category: Category): Category {
   };
 }
 
-export const useCrudOperations = ({ categories, setCategories }: UseCrudOperationsProps) => {
-  const [editingRole, setEditingRole] = useState<EditingRole | null>(null);
-  const [roleForm, setRoleForm] = useState<RoleForm>({
-    name: '',
-    permissions: [],
-    color: ROLE_COLORS[0]
-  });
+export const useCrudOperations = ({ categories, addCategoryStore, addChannelStore }: UseCrudOperationsProps) => {
+  // const [editingRole, setEditingRole] = useState<EditingRole | null>(null); // Unused
+  // const [roleForm, setRoleForm] = useState<RoleForm>({ // Unused
+  // name: '',
+  // permissions: [],
+  // color: ROLE_COLORS[0]
+  // });
 
   // Portapapeles local para copiar/pegar
   const clipboardRef = useRef<{ type: 'category' | 'channel' | null, data: Category | Channel | null }>({ type: null, data: null });
 
-  // Operaciones de categorías
-  const addCategory = useCallback((): void => {
-    const newCategory: Category = {
-      id: `cat-${Date.now()}`,
-      name: `Nueva Categoría ${categories.length + 1}`,
-      channels: [],
-      roles: []
-    };
-    setCategories([...categories, newCategory]);
-  }, [categories, setCategories]);
-
-  const deleteCategory = useCallback((categoryId: string): void => {
-    setCategories(categories.filter(cat => cat.id !== categoryId));
-  }, [categories, setCategories]);
-
-  // Operaciones de canales
-  const addChannel = useCallback((categoryId: string): void => {
-    const newChannel: Channel = {
-      id: `ch-${Date.now()}`,
-      name: `nuevo-canal-${Math.floor(Math.random() * 100)}`,
-      type: 'text',
-      roles: []
-    };
-    
-    setCategories(
-      categories.map(cat => 
-        cat.id === categoryId 
-          ? addChannelToCategory(cat, newChannel)
-          : cat
-      )
-    );
-  }, [categories, setCategories]);
-
-  const deleteChannel = useCallback((categoryId: string, channelId: string): void => {
-    setCategories(
-      categories.map(cat =>
-        cat.id === categoryId
-          ? removeChannelFromCategory(cat, channelId)
-          : cat
-      )
-    );
-  }, [categories, setCategories]);
-
-  // Operaciones de roles
-  const addRole = useCallback((categoryId: string, channelId?: string): void => {
-    setEditingRole({ id: '', categoryId, channelId });
-    setRoleForm({
-      name: '',
-      permissions: [],
-      color: ROLE_COLORS[Math.floor(Math.random() * ROLE_COLORS.length)]
-    });
-  }, []);
-
-  const editRole = useCallback((role: Role, categoryId: string, channelId?: string): void => {
-    setEditingRole({ id: role.id, categoryId, channelId });
-    setRoleForm({
-      name: role.name,
-      permissions: [...role.permissions],
-      color: role.color
-    });
-  }, []);
-
-  const saveRole = useCallback((): void => {
-    if (!editingRole || !roleForm.name.trim()) return;
-
-    const newRole: Role = {
-      id: editingRole.id || `role-${Date.now()}`,
-      name: roleForm.name.trim(),
-      permissions: roleForm.permissions,
-      color: roleForm.color
-    };
-
-    setCategories(
-      categories.map(cat => {
-        if (cat.id === editingRole.categoryId) {
-          if (editingRole.channelId) {
-            // Rol de canal
-            return {
-              ...cat,
-              channels: cat.channels.map(ch => {
-                if (ch.id === editingRole.channelId) {
-                  return {
-                    ...ch,
-                    roles: updateRoleInCollection(ch.roles, editingRole.id, newRole)
-                  };
-                }
-                return ch;
-              })
-            };
-          } else {
-            // Rol de categoría: actualiza en la categoría y propaga a canales
-            const updatedCategoryRoles = updateRoleInCollection(cat.roles, editingRole.id, newRole);
-            const updatedChannels = cat.channels.map(ch => {
-              // Si el canal NO tiene override para este rol, agrégalo o actualízalo
-              if (!ch.roles.some(r => r.id === newRole.id)) {
-                return {
-                  ...ch,
-                  roles: [...ch.roles, newRole]
-                };
-              }
-              return ch;
-            });
-            return {
-              ...cat,
-              roles: updatedCategoryRoles,
-              channels: updatedChannels
-            };
-          }
-        }
-        return cat;
-      })
-    );
-
-    setEditingRole(null);
-    setRoleForm({ name: '', permissions: [], color: ROLE_COLORS[0] });
-  }, [editingRole, roleForm, categories, setCategories]);
-
-  const deleteRole = useCallback((categoryId: string, roleId: string, channelId?: string): void => {
-    setCategories(
-      categories.map(cat => {
-        if (cat.id === categoryId) {
-          if (channelId) {
-            return {
-              ...cat,
-              channels: cat.channels.map(ch =>
-                ch.id === channelId
-                  ? { ...ch, roles: removeRoleFromCollection(ch.roles, roleId) }
-                  : ch
-              )
-            };
-          } else {
-            // Eliminar de la categoría y de todos los canales que no tengan override
-            const updatedChannels = cat.channels.map(ch => ({
-              ...ch,
-              roles: ch.roles.filter(r => r.id !== roleId)
-            }));
-            return {
-              ...cat,
-              roles: removeRoleFromCollection(cat.roles, roleId),
-              channels: updatedChannels
-            };
-          }
-        }
-        return cat;
-      })
-    );
-  }, [categories, setCategories]);
-
-  const togglePermission = useCallback((permission: string): void => {
-    setRoleForm(prev => ({
-      ...prev,
-      permissions: prev.permissions.includes(permission)
-        ? prev.permissions.filter(p => p !== permission)
-        : [...prev.permissions, permission]
-    }));
-  }, []);
-
-  const cancelRoleEdit = useCallback((): void => {
-    setEditingRole(null);
-    setRoleForm({ name: '', permissions: [], color: ROLE_COLORS[0] });
-  }, []);
+  // Deprecated CRUD operations - Handled by DndView.tsx directly with store actions
+  // const addCategory = useCallback((): void => { ... });
+  // const deleteCategory = useCallback((categoryId: string): void => { ... });
+  // const addChannel = useCallback((categoryId: string): void => { ... });
+  // const deleteChannel = useCallback((categoryId: string, channelId: string): void => { ... });
+  // const addRole = useCallback((categoryId: string, channelId?: string): void => { ... });
+  // const editRole = useCallback((role: Role, categoryId: string, channelId?: string): void => { ... });
+  // const saveRole = useCallback((): void => { ... });
+  // const deleteRole = useCallback((categoryId: string, roleId: string, channelId?: string): void => { ... });
+  // const togglePermission = useCallback((permission: string): void => { ... });
+  // const cancelRoleEdit = useCallback((): void => { ... });
 
   // --- COPIAR Y PEGAR ---
   const copyCategory = useCallback((categoryId: string) => {
@@ -233,11 +87,13 @@ export const useCrudOperations = ({ categories, setCategories }: UseCrudOperatio
 
   const pasteCategory = useCallback(() => {
     if (clipboardRef.current.type === 'category' && clipboardRef.current.data) {
-      const newCategory = cloneCategory(clipboardRef.current.data as Category);
-      setCategories([...categories, newCategory]);
+      const clonedCategoryData = cloneCategory(clipboardRef.current.data as Category);
+      // Note: This simple paste will not include channels/roles from the copied category.
+      // A more complex "deep paste" would require a different store action or enhancement.
+      addCategoryStore({ name: clonedCategoryData.name, type: 'category' });
       clipboardRef.current = { type: null, data: null };
     }
-  }, [categories, setCategories]);
+  }, [addCategoryStore]);
 
   const copyChannel = useCallback((categoryId: string, channelId: string) => {
     const category = categories.find(cat => cat.id === categoryId);
@@ -249,15 +105,12 @@ export const useCrudOperations = ({ categories, setCategories }: UseCrudOperatio
 
   const pasteChannel = useCallback((targetCategoryId: string) => {
     if (clipboardRef.current.type === 'channel' && clipboardRef.current.data) {
-      const newChannel = cloneChannel(clipboardRef.current.data as Channel);
-      setCategories(categories.map(cat =>
-        cat.id === targetCategoryId
-          ? { ...cat, channels: [...cat.channels, newChannel] }
-          : cat
-      ));
+      const clonedChannelData = cloneChannel(clipboardRef.current.data as Channel);
+      // Note: This simple paste will not include roles from the copied channel.
+      addChannelStore(targetCategoryId, { name: clonedChannelData.name, type: clonedChannelData.type });
       clipboardRef.current = { type: null, data: null };
     }
-  }, [categories, setCategories]);
+  }, [addChannelStore]);
 
   // Helper para obtener los roles efectivos de un canal (heredados + overrides)
   function getEffectiveRolesForChannel(category: Category, channel: Channel): Role[] {
@@ -269,33 +122,15 @@ export const useCrudOperations = ({ categories, setCategories }: UseCrudOperatio
     return [...inheritedRoles, ...channel.roles];
   }
 
+  // Return only the functions that are still relevant
   return {
     getEffectiveRolesForChannel,
-    // Estado
-    editingRole,
-    roleForm,
-    setRoleForm,
+    clipboardRef, // Expose ref if DndView needs to check clipboard state
     
-    // Operaciones de categorías
-    addCategory,
-    deleteCategory,
-    
-    // Operaciones de canales
-    addChannel,
-    deleteChannel,
-    
-    // Operaciones de roles
-    addRole,
-    editRole,
-    saveRole,
-    deleteRole,
-    togglePermission,
-    cancelRoleEdit,
-
     // Copiar y pegar
     copyCategory,
     pasteCategory,
     copyChannel,
-    pasteChannel
+    pasteChannel,
   };
 };
